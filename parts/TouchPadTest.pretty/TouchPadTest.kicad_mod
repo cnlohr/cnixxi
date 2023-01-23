@@ -1,0 +1,18 @@
+(footprint "TouchPadTest" (version 20211014) (generator pcbnew)
+  (layer "F.Cu")
+  (tedit 0)
+  (attr smd)
+  (fp_text reference "REF**" (at 0 -3.7 unlocked) (layer "F.SilkS")
+    (effects (font (size 1 1) (thickness 0.15)))
+    (tstamp 6114d069-ab8b-43e8-b8d7-71f34a370dc7)
+  )
+  (fp_text value "TouchPadTest" (at 0 1 unlocked) (layer "F.Fab") hide
+    (effects (font (size 1 1) (thickness 0.15)))
+    (tstamp 382f4088-158b-4094-b222-000135da4e77)
+  )
+  (fp_text user "${REFERENCE}" (at 0 2.5 unlocked) (layer "F.Fab") hide
+    (effects (font (size 1 1) (thickness 0.15)))
+    (tstamp 739006da-9988-4569-af78-040f86363d59)
+  )
+  (pad "1" smd circle (at 0 0) (size 6 6) (layers "F.Cu") (tstamp 3f186d75-57a8-4b2b-b07f-fd5586d3c7d7))
+)

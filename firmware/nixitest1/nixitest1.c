@@ -8,17 +8,34 @@
 
 uint32_t count;
 
-#define ABSOLUTE_MAX_ADC_SET 368 //172 volts (definitely do not exceed)
-#define PWM_PERIOD 70
-#define PWM_MAXIMUM_DUTY 40
+#define ABSOLUTE_MAX_ADC_SET 384 //180 volts (definitely do not exceed)
+
+// Specifically, 84 and 38 are tuned for this specific circuit.
+// Do not mess with them unless you know what you are doing.
+#define PWM_PERIOD 84
+#define PWM_MAXIMUM_DUTY 38
+
 #define ERROR_P_TERM 0 // Actually a shift.  0 is rattl-y but averages out and gives tight control.
 
 int target_feedback = 0;
 int lastadc = 0;
+int fade_enable = 0;
+int fade_time0;
+int fade_time1;
+int fade_disp0;
+int fade_disp1;
+int fade_place = 0;
+
+static void ApplyOnMask( uint16_t onmask )
+{
+	GPIOD->OUTDR = onmask >> 8;
+	GPIOC->OUTDR = onmask & 0xff;
+}
 
 void ADC1_IRQHandler(void) __attribute__((interrupt));
 void ADC1_IRQHandler(void)
 {
+	// This interrupt should happen ~3.5uS on current settings.
 	int adc = lastadc = ADC1->RDATAR;
 	int err = target_feedback - adc;
 	ADC1->STATR &= ~ADC_EOC;
@@ -32,7 +49,19 @@ void ADC1_IRQHandler(void)
 		TIM1->CH2CVR = err;
 	}
 
-	count++;
+	if( fade_enable )
+	{
+		int fadepos = count & 0xff;
+		if( fadepos < fade_time0 )
+			ApplyOnMask( fade_disp0 );
+		else if( fadepos == fade_time0 )
+			ApplyOnMask( 0 );
+		else if( fadepos < fade_time1 )
+			ApplyOnMask( fade_disp1 );
+		else
+			ApplyOnMask( 0 );
+		count++;
+	}
 }
 
 static void SetupTimer()
@@ -109,6 +138,71 @@ static void SetupADC()
 	ADC1->CTLR1 = ADC_EOCIE;
 }
 
+uint16_t GenOnMask( int segmenton )
+{
+	if( segmenton > 0 )
+	{
+		segmenton--;
+		if( segmenton < 8 )
+			return 1<<segmenton;
+		else if( segmenton == 8 )
+			return (1<<2)<<8;
+		else if( segmenton == 9 )
+			return (1<<3)<<8;
+		else if( segmenton == 10 )
+			return (1<<0)<<8;
+		else if( segmenton == 11 )
+			return (1<<7)<<8;
+	}
+	return 0;
+}
+
+static void HandleCommand( uint32_t dmdword )
+{
+	// ./minichlink -s 0x04 0x01110040
+	// ./minichlink -g 0x04
+	// It is a valid status word back from the PC.
+	int command = dmdword & 0x0f;
+	switch( command )
+	{
+	case 1:
+	{
+		int feedback = dmdword>>16;
+		if( feedback > ABSOLUTE_MAX_ADC_SET ) feedback = ABSOLUTE_MAX_ADC_SET;
+		target_feedback = feedback;
+		break;
+	}
+	case 2:
+	{
+		int segmenton = (dmdword>>16)&0x0f;
+
+		// Disable all fading.
+		fade_enable = 0;
+
+		ApplyOnMask( GenOnMask( segmenton ) );
+		break;
+	}
+	case 3:
+	{
+		// Configure a fade.
+		int disp0 = ( dmdword >> 8 ) & 0xf;
+		int disp1 = ( dmdword >> 12 ) & 0xf;
+		int time0 = ( dmdword >> 16 ) & 0xff;
+		int time1 = ( dmdword >> 24 ) & 0xff;
+
+		fade_time0 = time0;
+		fade_time1 = time1;
+		fade_disp0 = GenOnMask( disp0 );
+		fade_disp1 = GenOnMask( disp1 );
+		fade_enable = 1;
+
+		break;
+	}
+	}
+
+	*DMDATA0 = lastadc << 16;
+}
+
 int main()
 {
 	SystemInit48HSI();
@@ -146,6 +240,8 @@ int main()
 
 	*DMDATA0 = 0;
 
+	target_feedback = 0;
+
 	while(1)
 	{
 		GPIOD->BSHR = 1<<6;
@@ -153,37 +249,7 @@ int main()
 		uint32_t dmdword = *DMDATA0;
 		if( (dmdword & 0xf0) == 0x40 )
 		{
-			// ./minichlink -s 0x04 0x01110040
-			// ./minichlink -g 0x04
-
-			// It is a valid status word back from the PC.
-			int feedback = dmdword>>20;
-			if( feedback > ABSOLUTE_MAX_ADC_SET ) feedback = ABSOLUTE_MAX_ADC_SET;
-			target_feedback = feedback;
-
-			int segmenton = (dmdword>>16)&0x0f;
-			// Other various things are lower.
-
-			// Turn everything off.
-			GPIOC->BSHR = 0xff<<16;
-			GPIOD->BSHR = 0b10001101 << 16;
-
-			if( segmenton >= 1 )
-			{
-				segmenton--;
-				if( segmenton < 8 )
-					GPIOC->BSHR = 1<<segmenton;
-				else if( segmenton == 8 )
-					GPIOD->BSHR = 1<<2;
-				else if( segmenton == 9 )
-					GPIOD->BSHR = 1<<3;
-				else if( segmenton == 10 )
-					GPIOD->BSHR = 1<<0;
-				else if( segmenton == 11 )
-					GPIOD->BSHR = 1<<7;
-			}
-
-			*DMDATA0 = lastadc << 16;
+			HandleCommand( dmdword );
 		}
 	}
 }

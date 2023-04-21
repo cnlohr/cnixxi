@@ -6,10 +6,10 @@
 #include "../../ch32v003fun/minichlink/minichlink.h"
 
 int targetnum = 0;
-
+int lastsettarget = -1;
 #define VOLTAGE_SCALE 2.01
 
-const char * targdisp[] = { " ", "0", "9", "8", "7", "6", "5", "4", "3", "2", "1", ".", "N" };
+const char * targdisp[] = { "F", " ", "0", "9", "8", "7", "6", "5", "4", "3", "2", "1", ".", "N" };
 void HandleKey( int keycode, int bDown )
 {
 	if( bDown )
@@ -29,6 +29,7 @@ void HandleKey( int keycode, int bDown )
 		case '0': targetnum = 1; break;
 		case '-': case '_': targetnum = 11; break;
 		case '=': case '+': targetnum = 12; break;
+		case 'f': case 'F': targetnum = -1; break;
 	}
 	}
 }
@@ -74,18 +75,49 @@ int main()
 			do_set = 0;
 			float set_v = 450 - sety;
 			set_v = set_v/2;
-			if( set_v > 0 && set_v < 180 )
+			if( set_v > 0 && set_v < 195 )
 			{
-				rmask = ( ( (uint32_t)(set_v * VOLTAGE_SCALE) ) << 20 ) | 0x40;
+				rmask = ( ( (uint32_t)(set_v * VOLTAGE_SCALE) ) << 16 ) | 0x41;
 			}
 		}
-		MCF.WriteReg32( dev, 0x04, rmask | targetnum << 16 );
+		else if( targetnum == -1 )
+		{
+			// Fade Demo
+			static int fadeplace;
+			fadeplace+=2;
+			int fadegroup = (fadeplace)>>8;
+			int timeinfade = fadeplace&0xff;
+			int time0 = timeinfade;
+			int time1 = 255;
+			int disp0 = 10-((fadegroup+1)%11);
+			int disp1 = 10-((fadegroup+0)%11);
+			rmask = (time1<<24)|(time0<<16)|(disp1<<12)|(disp0<<8)|0x43;
+		}
+		else if( lastsettarget != targetnum )
+		{
+			rmask = 0x00000042 | (targetnum<<16);
+			lastsettarget = targetnum;
+		}
+		else
+		{
+			rmask = 0x00000040;
+			MCF.WriteReg32( dev, 0x04, 0x00000040 );
+		}
+
+		MCF.WriteReg32( dev, 0x04, rmask );
+
 		uint32_t status = 0xffffffff;
-		int r = MCF.ReadReg32( dev, 0x04, &status );
+		int r;
+		retry:
+		r = MCF.ReadReg32( dev, 0x04, &status );
+		if( ( status & 0xc0 ) == 0x40 ) goto retry;
+		if( r ) { printf( "R: %d\n", r ); status = 0; goto retry; }
+
+		printf( "%08x\n", status );
 		float voltage = ((float)(status>>16))/VOLTAGE_SCALE;
 		volthist[volthisthead] = voltage;
 		volthisthead = (volthisthead + 1) % VOLTHISTSIZE;
-		CNFGColor( (voltage > 180)?0xff0000ff:GLOW ); 
+		CNFGColor( (voltage > 183)?0xff0000ff:GLOW ); 
 		CNFGPenX = 1;
 		CNFGPenY = 1;
 		char cts[128];
@@ -96,7 +128,7 @@ int main()
 		{
 			CNFGPenX = 200+x;
 			CNFGPenY = 1+y;
-			CNFGDrawText( targdisp[targetnum], 10 );
+			CNFGDrawText( targdisp[targetnum+1], 10 );
 		}
 
 		int i;
@@ -104,9 +136,9 @@ int main()
 		float vl = voltage;
 
 		CNFGColor( 0xff0000ff );
-		CNFGTackSegment( 0, 450-180*2, w, 450-180*2 );
-		CNFGPenX = w - 250; CNFGPenY = 450-180*2-10;
-		CNFGDrawText( "WARNING: DO NOT EXCEED THIS LINE (180V)", 2 );
+		CNFGTackSegment( 0, 450-180*2-6, w, 450-180*2-6 );
+		CNFGPenX = w - 250; CNFGPenY = 450-180*2-10-6;
+		CNFGDrawText( "WARNING: DO NOT EXCEED THIS LINE (183V)", 2 );
 
 		for( i = 0; i < 9; i++ )
 		{
@@ -123,7 +155,6 @@ int main()
 		for( i = 0; i < w; i++ )
 		{
 			float v = volthist[vhp];
-			if( v == 0 ) break;
 			CNFGTackSegment( i, 450 - vl*2, i+1, 450 - v*2 );
 			vhp = (vhp - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
 			//printf( "%f\n", v );
@@ -131,7 +162,7 @@ int main()
 		}
 
 		CNFGSwapBuffers();
-	} while( 1 );
+	}
 
 	return 0;
 }

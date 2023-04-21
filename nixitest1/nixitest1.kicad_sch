@@ -1011,8 +1011,8 @@
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 47c5a941-5ea6-4692-87af-c0393bd2065d)
   )
-  (text "Changes in RevA\n * Probably remove HVIMON >> DEFINITELY\n * Include pull-down on HVCTL  >> DEFINITELY.\n * Monitor ripple on HVP\n\nMod per Ivan."
-    (at 24.13 147.32 0)
+  (text "Changes in RevA\n * Probably remove HVIMON >> DEFINITELY\n * Include pull-down on HVCTL  >> DEFINITELY.\n * Monitor ripple on HVP  (NOT AN ISSUE)\n\nTODO:\nMod HW per Ivan.\n * Ripple is TINY.  Can use smaller output cap.  100nF?\n * Output reverse-V is baaad.  Maybe add a diode & cap to inverse rail of flyback?\n * Keep P7 on DIG_AUX.\n * Shrink binding post holes.\n * Mark off which pin on header is PGM\n * Reduce power to comma\n * Switch resistors to 15k"
+    (at 16.51 166.37 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 5c570b8c-e31c-47bd-a56b-23a2e3a9d6d7)
   )

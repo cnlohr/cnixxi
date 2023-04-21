@@ -1000,6 +1000,11 @@
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 47c5a941-5ea6-4692-87af-c0393bd2065d)
   )
+  (text "TODO:\n * Probably remove HVIMON >> DEFINITELY\n * Include pull-down on HVCTL  >> DEFINITELY.\n"
+    (at 24.13 147.32 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid 5c570b8c-e31c-47bd-a56b-23a2e3a9d6d7)
+  )
 
   (global_label "DIG_1" (shape input) (at 31.75 52.07 180) (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify right))

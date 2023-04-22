@@ -8,24 +8,29 @@
 
 uint32_t count;
 
-#define ENABLE_TUNING
-#define ABSOLUTE_MAX_ADC_SET 408 //190ish volts (definitely do not exceed)
+//#define ENABLE_TUNING
+// VDD Adjusted.
+#define ABSOLUTE_MAX_ADC_SET 204 // Actually around 188V  (0 to 204 maps to 0 to 190V)
 
-// Specifically, 84 and 38 are tuned for this specific circuit.
-// Do not mess with them unless you know what you are doing.
-
+// Do not mess with PWM_ values unless you know what you are willing to go down a very deep rabbit hole. 
 #ifndef ENABLE_TUNING
-#define PWM_PERIOD 96
-#define PWM_MAXIMUM_DUTY 48
+#define PWM_PERIOD 140
 #else
-int PWM_PERIOD = 96;
-int PWM_MAXIMUM_DUTY = 48;
+int PWM_PERIOD = 140;
 #endif
+int PWM_MAXIMUM_DUTY = 48;  //This actually gets overwrittenin the first few milliseconds onces a system VDD is read.
 
-#define ERROR_P_TERM 1 // Actually a shift.  0 is rattl-y but averages out and gives tight control.  -1 is EVEN RATTLIER.
+
+
+
+int update_targ_based_on_vdd = 0;
+
+#define ERROR_P_TERM 1 // Actually a shift.  Normally we would do the opposite to smooth out, but we can realy bang this around!  It's OK if we rattle like crazy. 
 
 int target_feedback = 0;
+int target_feedback_vdd_adjusted = 0;
 int lastadc = 0;
+int lastvdd = 0;
 int fade_enable = 0;
 int fade_time0;
 int fade_time1;
@@ -44,7 +49,7 @@ void ADC1_IRQHandler(void)
 {
 	// This interrupt should happen ~3.5uS on current settings.
 	int adc = lastadc = ADC1->RDATAR;
-	int err = target_feedback - adc;
+	int err = target_feedback_vdd_adjusted - adc;
 	ADC1->STATR &= ~ADC_EOC;
 
 	if( err < 0 )
@@ -56,9 +61,47 @@ void ADC1_IRQHandler(void)
 		TIM1->CH2CVR = err;
 	}
 
+	int fadepos = (++count) & 0xff;
+	if( fadepos == 0 )
+	{
+		ADC1->CTLR2 |= ADC_JSWSTART;
+	}
+	else if( fadepos == 2 )
+	{
+		// Use injection channel data to read vref.
+		// Ballparks:
+		//   0xF0  / 240 for 5V input << lastvdd
+		//	 0x175 / 373 for 3.3v input << lastvdd
+		// Tunings (experimentally found)
+		//  Duty/Period
+		//  100/160 will literally cook the LEDs but can get up to 180V @ 3.3V under load.
+		//  48/120  is more efficient than 48/96 at 3.3v.  (139V)
+		//  60/112  is pretty efficient, too.  (150V)
+		//  84/140 = 176V (reported, 180 actual) with 8 at 3.3   <<< This is a really nice thing to run at on 3.3V
+		//			The transformer DOES get very warm though.
+		//  Backto 5V.
+		//  54/140 --> Is what it is is for 5V if period is set to 140.
+		//
+		//  therefore I want to map, for maximum duty cycle, the following:
+		//  373 -> 84 // Ratio is 4.440
+		//  240 -> 56 // Ratio is 4.444
+		// Wow! That's nice!
+		lastvdd = ADC1->IDATAR1;
+
+#ifndef ENABLE_TUNING
+		// IF we aren't enabling tuning, we can update max-on-time with this value.
+		//  There's a neat hack where you can divide by weird decimal divisors by adding and subtracing terms.
+		//  I apply that weird trick here.
+		//  1÷(1÷4−1÷64−1÷128−1÷1024) is roughly equal to dividing by 4.43290
+		//  We actually can simplify it for our purposes as: 1÷(1÷4−1÷64−1÷128)
+		//
+		PWM_MAXIMUM_DUTY = (lastvdd>>2) - (lastvdd>>6) - (lastvdd>>7); // lastvdd / 4.44.  For ~5V, this works out to 45, for ~3.3V it works out to ~70.
+#endif
+		update_targ_based_on_vdd = 1;
+	}
+
 	if( fade_enable )
 	{
-		int fadepos = count & 0xff;
 		if( fadepos < fade_time0 )
 			ApplyOnMask( fade_disp0 );
 		else if( fadepos == fade_time0 )
@@ -67,7 +110,6 @@ void ADC1_IRQHandler(void)
 			ApplyOnMask( fade_disp1 );
 		else
 			ApplyOnMask( 0 );
-		count++;
 	}
 }
 
@@ -118,31 +160,30 @@ static void SetupADC()
 	ADC1->RSQR2 = 0;
 	ADC1->RSQR3 = 7;	// 0-9 for 8 ext inputs and two internals
 	
+	ADC1->ISQR = 8 | (3<<20); //Injection group is 8. NOTE: See note in 9.3.12 (ADC_ISQR) of TRM.
+
 	// set sampling time for chl 7
-	ADC1->SAMPTR2 = 6<<(3*7);	// 0:7 => 3/9/15/30/43/57/73/241 cycles
+	ADC1->SAMPTR2 = (6<<(3*7)) | (6<<(3*8));	// 0:7 => 3/9/15/30/43/57/73/241 cycles
 		// (4 == 43 cycles), (6 = 73 cycles)  Note these are alrady /2, so 
 		// setting this to 73 cycles actually makes it wait 256 total cycles
 		// @ 48MHz.
 
 	// turn on ADC and set rule group to sw trig
-	ADC1->CTLR2 |= ADC_ADON; // 0 = Use TRGO event for Timer 1.
-	
+	ADC1->CTLR2 = ADC_ADON | ADC_JEXTTRIG | ADC_JEXTSEL | ADC_EXTTRIG; // 0 = Use TRGO event for Timer 1 to fire ADC rule.
+
 	// Reset calibration
 	ADC1->CTLR2 |= ADC_RSTCAL;
 	while(ADC1->CTLR2 & ADC_RSTCAL);
-	
+
 	// Calibrate
 	ADC1->CTLR2 |= ADC_CAL;
 	while(ADC1->CTLR2 & ADC_CAL);
-
-	// Allow Timer1 TRGO to trigger ADC conversion.
-	ADC1->CTLR2 |= ADC_EXTTRIG;
 
 	// enable the ADC Conversion Complete IRQ
 	NVIC_EnableIRQ( ADC_IRQn );
 
 	// Enable the End-of-conversion interrupt.
-	ADC1->CTLR1 = ADC_EOCIE;
+	ADC1->CTLR1 = ADC_EOCIE | ADC_SCAN | ADC_JDISCEN;
 }
 
 uint16_t GenOnMask( int segmenton )
@@ -224,7 +265,7 @@ static void HandleCommand( uint32_t dmdword )
 	}
 	}
 
-	*DMDATA0 = lastadc << 16;
+	*DMDATA0 = (lastadc << 12) | (lastvdd << 22);
 }
 
 int main()
@@ -274,6 +315,22 @@ int main()
 		if( (dmdword & 0xf0) == 0x40 )
 		{
 			HandleCommand( dmdword );
+		}
+		if( update_targ_based_on_vdd )
+		{
+			// target_feedback is in volts. 0..200 maps to the physical device voltage.
+			// lastvdd = 0xF0  for 5V input.
+			// lastvdd = 0x175 for 3.3v input.
+			//
+			// target_feedback_vdd_adjusted = 408 for ~192V @ 5
+			// target_feedback_vdd_adjusted = 680 for ~192V @ 3.3
+			//
+			// 408 = 192 * 240 / x = (192*240)/408 = 112.941176471
+			// 680 = 192 * 373 / x = (373*680)/192 = 105.317647059
+			//  Close enough to 128.
+			//
+			target_feedback_vdd_adjusted = (target_feedback * lastvdd) >> 7;
+			update_targ_based_on_vdd = 0;
 		}
 	}
 }

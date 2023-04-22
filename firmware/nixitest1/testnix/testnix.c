@@ -45,6 +45,7 @@ void HandleDestroy() { }
 
 #define VOLTHISTSIZE 2048
 float volthist[VOLTHISTSIZE];
+float volthistvdd[VOLTHISTSIZE];
 int volthisthead = 0;
 
 int main()
@@ -69,6 +70,9 @@ int main()
 	while(CNFGHandleInput())
 	{
 		const uint32_t GLOW = 0xFFD010FF;
+		const uint32_t GLOWDIM = 0x806008FF;
+		const uint32_t BLUEGLOW = 0x2080d0ff;
+
 		short w, h;
 		int x, y;
 		CNFGClearFrame();
@@ -80,16 +84,16 @@ int main()
 		static int last_set_v = 0;
 		{
 			CNFGColor( 0x303030ff );
-			CNFGTackSegment( w-100, 65, w-100, h );
+			CNFGTackSegment( w-100, 45, w-100, h );
 #ifdef ENABLE_TUNING
-			CNFGTackSegment( w-200, 65, w-200, h );
-			CNFGTackSegment( w-300, 65, w-300, h );
+			CNFGTackSegment( w-200, 45, w-200, h );
+			CNFGTackSegment( w-300, 45, w-300, h );
 #endif
 			CNFGColor( 0xD0D0D0FF );
-			CNFGPenX = w-100+2; CNFGPenY = 67; sprintf( cts, "VTG %d", last_set_v ); CNFGDrawText( cts, 2 );
+			CNFGPenX = w-100+2; CNFGPenY = 47; sprintf( cts, "VTG %d", last_set_v ); CNFGDrawText( cts, 2 );
 #ifdef ENABLE_TUNING
-			CNFGPenX = w-200+2; CNFGPenY = 67; sprintf( cts, "Per %d", set_period ); CNFGDrawText( cts, 2 );
-			CNFGPenX = w-300+2; CNFGPenY = 67; sprintf( cts, "Duty %d", set_max_duty ); CNFGDrawText( cts, 2 );
+			CNFGPenX = w-200+2; CNFGPenY = 47; sprintf( cts, "Per %d", set_period ); CNFGDrawText( cts, 2 );
+			CNFGPenX = w-300+2; CNFGPenY = 47; sprintf( cts, "Duty %d", set_max_duty ); CNFGDrawText( cts, 2 );
 #endif
 		}
 
@@ -151,11 +155,14 @@ int main()
 		if( ( status & 0xc0 ) == 0x40 ) goto retry;
 		if( r ) { printf( "R: %d\n", r ); status = 0; goto retry; }
 
-		//printf( "%08x\n", status );
-		float voltage = ((float)(status>>16))/VOLTAGE_SCALE;
+		printf( "%08x\n", status );
+		float voltvdd = 1.21/(((status>>22)&0x3ff)/1023.0f); // vref = 2.2v
+		float voltage = ((((float)((status>>12)&0x3ff))/1023.0f)*100.0)*voltvdd;
+		// Measured @ 176 reported here, but 180 in reality if ref is 1.2.  But 1.21 fixes it.
 		volthist[volthisthead] = voltage;
+		volthistvdd[volthisthead] = voltvdd;
 		volthisthead = (volthisthead + 1) % VOLTHISTSIZE;
-		CNFGColor( (voltage > 192)?0xff0000ff:GLOW ); 
+		CNFGColor( (voltage > 198)?0xff0000ff:GLOW ); 
 		CNFGPenX = 1;
 		CNFGPenY = 1;
 		sprintf( cts, "HV Line: %3.0f V\nRStatus: %d", voltage, r );
@@ -168,14 +175,18 @@ int main()
 			CNFGDrawText( targdisp[targetnum+1], 10 );
 		}
 
+		CNFGColor( BLUEGLOW );
+		CNFGPenX = 300;
+		CNFGPenY = 1;
+		sprintf( cts, "VDD: %3.3f V\n", voltvdd );
+		CNFGDrawText( cts, 4 );
+
 		int i;
-		int vhp = (volthisthead - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
-		float vl = voltage;
 
 		CNFGColor( 0xff0000ff );
-		CNFGTackSegment( 0, 450-192*2-6, w, 450-192*2-6 );
-		CNFGPenX = w - 250; CNFGPenY = 450-192*2-10-6;
-		CNFGDrawText( "WARNING: DO NOT EXCEED THIS LINE (192)", 2 );
+		CNFGTackSegment( 0, 450-200*2-6, w, 450-200*2-6 );
+		CNFGPenX = w - 250; CNFGPenY = 450-200*2-10-6;
+		CNFGDrawText( "WARNING: DO NOT EXCEED THIS LINE (200)", 2 );
 
 		for( i = 0; i < 10; i++ )
 		{
@@ -185,17 +196,35 @@ int main()
 			sprintf( cts, "%d volts", i * 20 );
 			CNFGDrawText( cts, 2 );
 			CNFGTackSegment( 0,450 - i * 40, w, 450 - i * 40 );
-			CNFGColor( GLOW ); 
 		}
 
-
-		for( i = 0; i < w*2; i++ )
 		{
-			float v = volthist[vhp];
-			CNFGTackSegment( i/2, 450 - vl*2, i/2+1, 450 - v*2 );
-			vhp = (vhp - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
-			//printf( "%f\n", v );
-			vl = v;
+			CNFGColor( BLUEGLOW ); 
+			int vhp = (volthisthead - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
+			float vl = voltvdd*10;
+			for( i = 0; i < w*2; i++ )
+			{
+				float v = volthistvdd[vhp]*10;
+				CNFGTackSegment( i/2, 450 - vl*2, (i+1)/2, 450 - v*2 );
+				vhp = (vhp - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
+				//printf( "%f\n", v );
+				vl = v;
+			}
+		}
+
+		{
+			int vhp = (volthisthead - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
+			float vl = voltage;
+			CNFGColor( GLOW ); 
+
+			for( i = 0; i < w*2; i++ )
+			{
+				float v = volthist[vhp];
+				CNFGTackSegment( i/2, 450 - vl*2, (i+1)/2, 450 - v*2 );
+				vhp = (vhp - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
+				//printf( "%f\n", v );
+				vl = v;
+			}
 		}
 
 		CNFGSwapBuffers();

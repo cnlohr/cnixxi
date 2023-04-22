@@ -5,6 +5,9 @@
 
 #include "../../ch32v003fun/minichlink/minichlink.h"
 
+
+#define ENABLE_TUNING
+
 int targetnum = 0;
 int lastsettarget = -1;
 #define VOLTAGE_SCALE 2.01
@@ -35,8 +38,8 @@ void HandleKey( int keycode, int bDown )
 }
 
 int do_set = 0;
-int sety = 0;
-void HandleButton( int x, int y, int button, int bDown ) { }
+int sety = 0, setx = 0;
+void HandleButton( int x, int y, int button, int bDown ) { if( bDown ) setx = x;  }
 void HandleMotion( int x, int y, int mask ) { sety = y; do_set = mask; }
 void HandleDestroy() { }
 
@@ -46,6 +49,7 @@ int volthisthead = 0;
 
 int main()
 {
+	char cts[128];
 	void * dev = TryInit_ESP32S2CHFUN();
 	if( !dev )
 	{
@@ -70,15 +74,49 @@ int main()
 		CNFGClearFrame();
 		CNFGGetDimensions( &w, &h );
 
+
+		static int set_period = 96;
+		static int set_max_duty = 48;
+		static int last_set_v = 0;
+		{
+			CNFGColor( 0x303030ff );
+			CNFGTackSegment( w-100, 65, w-100, h );
+#ifdef ENABLE_TUNING
+			CNFGTackSegment( w-200, 65, w-200, h );
+			CNFGTackSegment( w-300, 65, w-300, h );
+#endif
+			CNFGColor( 0xD0D0D0FF );
+			CNFGPenX = w-100+2; CNFGPenY = 67; sprintf( cts, "VTG %d", last_set_v ); CNFGDrawText( cts, 2 );
+#ifdef ENABLE_TUNING
+			CNFGPenX = w-200+2; CNFGPenY = 67; sprintf( cts, "Per %d", set_period ); CNFGDrawText( cts, 2 );
+			CNFGPenX = w-300+2; CNFGPenY = 67; sprintf( cts, "Duty %d", set_max_duty ); CNFGDrawText( cts, 2 );
+#endif
+		}
+
 		if( do_set )
 		{
 			do_set = 0;
-			float set_v = 450 - sety;
-			set_v = set_v/2;
-			if( set_v > 0 && set_v < 195 )
+			float set_v = (450 - sety)/2;
+			if( setx > w - 100 )
 			{
-				rmask = ( ( (uint32_t)(set_v * VOLTAGE_SCALE) ) << 16 ) | 0x41;
+				if( set_v > 0 && set_v < 220 )
+				{
+					last_set_v = (uint32_t)(set_v * 3);
+					rmask = ( last_set_v << 16 ) | 0x41;
+				}
 			}
+#ifdef ENABLE_TUNING
+			else if( setx > w - 200 )
+			{
+				set_period = set_v;
+				rmask = (set_period<<16) | (set_max_duty<<24) | 0xaa44;
+			}
+			else if( setx > w - 300 )
+			{
+				set_max_duty = set_v;
+				rmask = (set_period<<16) | (set_max_duty<<24) | 0xaa44;
+			}
+#endif
 		}
 		else if( targetnum == -1 )
 		{
@@ -113,14 +151,13 @@ int main()
 		if( ( status & 0xc0 ) == 0x40 ) goto retry;
 		if( r ) { printf( "R: %d\n", r ); status = 0; goto retry; }
 
-		printf( "%08x\n", status );
+		//printf( "%08x\n", status );
 		float voltage = ((float)(status>>16))/VOLTAGE_SCALE;
 		volthist[volthisthead] = voltage;
 		volthisthead = (volthisthead + 1) % VOLTHISTSIZE;
-		CNFGColor( (voltage > 183)?0xff0000ff:GLOW ); 
+		CNFGColor( (voltage > 192)?0xff0000ff:GLOW ); 
 		CNFGPenX = 1;
 		CNFGPenY = 1;
-		char cts[128];
 		sprintf( cts, "HV Line: %3.0f V\nRStatus: %d", voltage, r );
 		CNFGDrawText( cts, 4 );	
 
@@ -136,11 +173,11 @@ int main()
 		float vl = voltage;
 
 		CNFGColor( 0xff0000ff );
-		CNFGTackSegment( 0, 450-180*2-6, w, 450-180*2-6 );
-		CNFGPenX = w - 250; CNFGPenY = 450-180*2-10-6;
-		CNFGDrawText( "WARNING: DO NOT EXCEED THIS LINE (183V)", 2 );
+		CNFGTackSegment( 0, 450-192*2-6, w, 450-192*2-6 );
+		CNFGPenX = w - 250; CNFGPenY = 450-192*2-10-6;
+		CNFGDrawText( "WARNING: DO NOT EXCEED THIS LINE (192)", 2 );
 
-		for( i = 0; i < 9; i++ )
+		for( i = 0; i < 10; i++ )
 		{
 			CNFGColor( (i == 0 )?0xD0D0D0FF:0x303030ff );
 			CNFGPenX = 1;
@@ -152,10 +189,10 @@ int main()
 		}
 
 
-		for( i = 0; i < w; i++ )
+		for( i = 0; i < w*2; i++ )
 		{
 			float v = volthist[vhp];
-			CNFGTackSegment( i, 450 - vl*2, i+1, 450 - v*2 );
+			CNFGTackSegment( i/2, 450 - vl*2, i/2+1, 450 - v*2 );
 			vhp = (vhp - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
 			//printf( "%f\n", v );
 			vl = v;

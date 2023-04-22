@@ -8,14 +8,21 @@
 
 uint32_t count;
 
-#define ABSOLUTE_MAX_ADC_SET 384 //180 volts (definitely do not exceed)
+#define ENABLE_TUNING
+#define ABSOLUTE_MAX_ADC_SET 408 //190ish volts (definitely do not exceed)
 
 // Specifically, 84 and 38 are tuned for this specific circuit.
 // Do not mess with them unless you know what you are doing.
-#define PWM_PERIOD 84
-#define PWM_MAXIMUM_DUTY 38
 
-#define ERROR_P_TERM 0 // Actually a shift.  0 is rattl-y but averages out and gives tight control.
+#ifndef ENABLE_TUNING
+#define PWM_PERIOD 96
+#define PWM_MAXIMUM_DUTY 48
+#else
+int PWM_PERIOD = 96;
+int PWM_MAXIMUM_DUTY = 48;
+#endif
+
+#define ERROR_P_TERM 1 // Actually a shift.  0 is rattl-y but averages out and gives tight control.  -1 is EVEN RATTLIER.
 
 int target_feedback = 0;
 int lastadc = 0;
@@ -44,7 +51,7 @@ void ADC1_IRQHandler(void)
 		TIM1->CH2CVR = 0;
 	else
 	{
-		err = err >> ERROR_P_TERM;
+		err = err << ERROR_P_TERM;
 		if( err > PWM_MAXIMUM_DUTY ) err = PWM_MAXIMUM_DUTY;
 		TIM1->CH2CVR = err;
 	}
@@ -196,6 +203,23 @@ static void HandleCommand( uint32_t dmdword )
 		fade_disp1 = GenOnMask( disp1 );
 		fade_enable = 1;
 
+		break;
+	}
+	case 4:
+	{
+#ifdef ENABLE_TUNING
+		// this is only for tuning.
+		if( ( dmdword & 0xff00 ) == 0xaa00 )
+		{
+			int period = (dmdword>>16)&0xff;
+			if( period < 20 ) period = 20;
+			PWM_PERIOD = period;
+			TIM1->ATRLR = PWM_PERIOD;
+			int max_duty = (dmdword>>24)&0xff;
+			if( max_duty > period - 14 ) max_duty = period - 14;
+			PWM_MAXIMUM_DUTY = max_duty;
+		}
+#endif
 		break;
 	}
 	}

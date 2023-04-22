@@ -10,7 +10,7 @@ uint32_t count;
 
 //#define ENABLE_TUNING
 // VDD Adjusted.
-#define ABSOLUTE_MAX_ADC_SET 204 // Actually around 188V  (0 to 204 maps to 0 to 190V)
+#define ABSOLUTE_MAX_ADC_SET 208 // Actually around 188V  (0 to 208 maps to 0 to 190V)
 
 // Do not mess with PWM_ values unless you know what you are willing to go down a very deep rabbit hole. 
 #ifndef ENABLE_TUNING
@@ -20,13 +20,9 @@ int PWM_PERIOD = 140;
 #endif
 int PWM_MAXIMUM_DUTY = 48;  //This actually gets overwrittenin the first few milliseconds onces a system VDD is read.
 
-
-
-
-int update_targ_based_on_vdd = 0;
-
 #define ERROR_P_TERM 1 // Actually a shift.  Normally we would do the opposite to smooth out, but we can realy bang this around!  It's OK if we rattle like crazy. 
 
+int update_targ_based_on_vdd = 0;
 int target_feedback = 0;
 int target_feedback_vdd_adjusted = 0;
 int lastadc = 0;
@@ -163,7 +159,7 @@ static void SetupADC()
 	ADC1->ISQR = 8 | (3<<20); //Injection group is 8. NOTE: See note in 9.3.12 (ADC_ISQR) of TRM.
 
 	// set sampling time for chl 7
-	ADC1->SAMPTR2 = (6<<(3*7)) | (6<<(3*8));	// 0:7 => 3/9/15/30/43/57/73/241 cycles
+	ADC1->SAMPTR2 = (4<<(3*7)) | (4<<(3*8));	// 0:7 => 3/9/15/30/43/57/73/241 cycles
 		// (4 == 43 cycles), (6 = 73 cycles)  Note these are alrady /2, so 
 		// setting this to 73 cycles actually makes it wait 256 total cycles
 		// @ 48MHz.

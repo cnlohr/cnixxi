@@ -126,7 +126,7 @@ int main()
 		{
 			// Fade Demo
 			static int fadeplace;
-			fadeplace+=2;
+			fadeplace+=1;
 			int fadegroup = (fadeplace)>>8;
 			int timeinfade = fadeplace&0xff;
 			int time0 = timeinfade;

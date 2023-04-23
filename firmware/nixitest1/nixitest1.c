@@ -22,18 +22,27 @@ int PWM_PERIOD = 140;
 int PWM_MAXIMUM_DUTY = 48;  //This is changed based on vdd.
 
 
-// Flyback Tuning Parameters
-// This controls how actively we should push back on error in our P loop.
-// Many times people use PID controllers to get very good control of control
-// systems. But, for us, P is good enough. And, this term basically being 2^
-// is plenty of control.
-#define ERROR_P_TERM 2
+// Flyback PID loop Tuning Parameters
+//
+// This is a PID loop (you should read about this separately). But these terms
+// are actually on the order of 2^term. So we are only able to get the tuning
+// to a rough ballpark. Thankfully, PID loops are forgiving.
+//
+// Honestly, this is MUCH more sophisticated than it needs to be!  I was using
+// a P-only loop for quite some time without any issues.
+#define ERROR_P_TERM 3
+#define ERROR_D_TERM -2
+#define PID_SAT_MAX 6144
+#define PID_SAT_MIN -1024
+#define ERROR_I_TERM -6
 
+// We filter our ADC inputs because they are kind of noisy.
+//
 // We can use Binary-shift IIR filters to filter the incoming ADC signals.
 // See later in the code, but, it maps to only about 4 assembly instructions!
-// (plus a read-back of the previous value we will be mixing)
-#define ADC_IIR 2
-#define VDD_IIR 2
+// (plus a read-back of the previous value we will be mixing).
+#define ADC_IIR 1
+#define VDD_IIR 3
 
 // When we get a new vdd measurement, we can update our target_feedback value
 // based on VDD. This doesn't need to happen very often at all! But because
@@ -81,23 +90,34 @@ void ADC1_IRQHandler(void)
 	// This performs a low-pass filter on our data, ADC1->RDATAR
 	// the sample rate, always.  As a side note, the value of the IIR
 	// (but now it's 2^VDD_IIR bigger)
-	lastadc = ADC1->RDATAR + (lastadc - (lastadc>>ADC_IIR));
+	int adcraw = ADC1->RDATAR;
+	int newadc = adcraw + (lastadc - (lastadc>>ADC_IIR));
+	lastadc = newadc;
 
 
 	int err = feedback_vdd - lastadc;
-	ADC1->STATR &= ~ADC_EOC;
 
-	if( err < 0 )
-		TIM1->CH2CVR = 0;
-	else
-	{
-		// Careful with shifting.  If you shift right by say ADC_IIR
-		// then shift left, you will lose bits of precision.
-		err = err >> ( ADC_IIR - ERROR_P_TERM );
+	static int lasterr;
+	static int integral;
+	int derivative = -(err - lasterr);
+	integral += err;
 
-		if( err > PWM_MAXIMUM_DUTY ) err = PWM_MAXIMUM_DUTY;
-		TIM1->CH2CVR = err;
-	}
+	// We asymmetrically allow the integral to saturate, to help prevent long-
+	// term oscillations.
+	integral = ( integral > ((PID_SAT_MAX)<<ADC_IIR) ) ? ((PID_SAT_MAX)<<ADC_IIR) : integral;
+	integral = ( integral < ((PID_SAT_MIN)<<ADC_IIR) ) ? ((PID_SAT_MIN)<<ADC_IIR) : integral;
+
+	// This is the heart of the PID loop.
+	// General note about shifting: Be sure to combine your shifts.
+	//  If you shift right, then left, you will lose bits of precision.
+	int plant = 
+		(err << ( (-ADC_IIR) + (ERROR_P_TERM) )) +
+		(integral >> ( ADC_IIR - (ERROR_I_TERM) )) + 
+		(derivative << ( (-ADC_IIR) - (ERROR_D_TERM) ) );
+	lasterr = err;
+	plant = ( plant > PWM_MAXIMUM_DUTY ) ? PWM_MAXIMUM_DUTY : plant;
+	plant = ( plant < 0 ) ? 0 : plant;
+	TIM1->CH2CVR = plant;
 
 	int fadepos = (++count) & 0xff;
 
@@ -112,20 +132,6 @@ void ADC1_IRQHandler(void)
 		// Ballparks (for unfiltered numbers)
 		//   0xF0  / 240 for 5V input << lastrefvdd
 		//	 0x175 / 373 for 3.3v input << lastrefvdd
-		// Tunings (experimentally found)
-		//  Duty/Period
-		//  100/160 cooks the XFRM but can get up to 180V @ 3.3V under load.
-		//  48/120  is more efficient than 48/96 at 3.3v.  (139V)
-		//  60/112  is pretty efficient, too.  (150V)
-		//  84/140 = 176V (reported, 180 actual) with 8 at 3.3  (runs great)
-		//			The transformer DOES get very warm though.
-		//  Backto 5V.
-		//  54/140 --> Is what it is is for 5V if period is set to 140.
-		//
-		//  therefore I want to map, for maximum duty cycle, the following:
-		//  373 -> 84 // Ratio is 4.440
-		//  240 -> 56 // Ratio is 4.444
-		// Wow! That's nice!
 
 		// Do an IIR low-pass filter on VDD. See IIR discussion above.
 		lastrefvdd = ADC1->IDATAR1 + (lastrefvdd - (lastrefvdd>>VDD_IIR)); 
@@ -190,6 +196,9 @@ void ADC1_IRQHandler(void)
 			ApplyOnMask( fade_disp1 );
 	}
 
+	// Acknowledge the interrupt. NOTE: Another start request may have fired
+	// while we were servicing the interrupt.  That's probably fine.
+	ADC1->STATR &= ~ADC_EOC;
 }
 
 static void SetupTimer()
@@ -236,16 +245,20 @@ static void SetupADC()
 	ADC1->RSQR2 = 0;
 	ADC1->RSQR3 = 7;	// 0-9 for 8 ext inputs and two internals
 	
-	ADC1->ISQR = 8 | (3<<20); //Injection group is 8. NOTE: See note in 9.3.12 (ADC_ISQR) of TRM.
+	//Injection group is 8. NOTE: See note in 9.3.12 (ADC_ISQR) of TRM. The
+	// group numbers is actually 4-group numbers.
+	ADC1->ISQR = 8 | (3<<20);
 
-	// set sampling time for chl 7
-	ADC1->SAMPTR2 = (4<<(3*7)) | (4<<(3*8));	// 0:7 => 3/9/15/30/43/57/73/241 cycles
+	// Sampling time for channels. Careful: This has PID tuning implications
+	ADC1->SAMPTR2 = (4<<(3*7)) | (2<<(3*8)); 
+		// 0:7 => 3/9/15/30/43/57/73/241 cycles
 		// (4 == 43 cycles), (6 = 73 cycles)  Note these are alrady /2, so 
 		// setting this to 73 cycles actually makes it wait 256 total cycles
 		// @ 48MHz.
 
-	// turn on ADC and set rule group to sw trig
-	ADC1->CTLR2 = ADC_ADON | ADC_JEXTTRIG | ADC_JEXTSEL | ADC_EXTTRIG; // 0 = Use TRGO event for Timer 1 to fire ADC rule.
+	// Turn on ADC and set rule group to sw trig
+	// 0 = Use TRGO event for Timer 1 to fire ADC rule.
+	ADC1->CTLR2 = ADC_ADON | ADC_JEXTTRIG | ADC_JEXTSEL | ADC_EXTTRIG; 
 
 	// Reset calibration
 	ADC1->CTLR2 |= ADC_RSTCAL;
@@ -288,6 +301,7 @@ static void HandleCommand( uint32_t dmdword )
 	// You can use minichlink to setup this:
 	// ./minichlink -s 0x04 0x00B40041 # Configure for 180V.
 	// ./minichlink -s 0x04 0x00030042 # Light digit "8"
+	// ./minichlink -s 0x04 0x60303243 # Dimly light 8 and 8.
 	// ./minichlink -g 0x04            # Get status.
 
 	// Note: To get here, DEBUG0's LSB must be 0x4x command is that 'x'
@@ -450,8 +464,7 @@ int main()
 			uint32_t numerator = (lastrefvdd * target_feedback);
 			feedback_vdd =
 				(numerator>>(7+VDD_IIR-ADC_IIR)) +
-				(numerator>>(11+VDD_IIR-ADC_IIR)) + 
-				(numerator>>(12+VDD_IIR-ADC_IIR));
+				(numerator>>(11+VDD_IIR-ADC_IIR));
 
 			update_targ_based_on_vdd = 0;
 		}

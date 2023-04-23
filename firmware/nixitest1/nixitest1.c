@@ -306,12 +306,12 @@ int main()
 	while(1)
 	{
 		GPIOD->BSHR = 1<<6;
-		GPIOD->BSHR = (1<<(16+6));
 		uint32_t dmdword = *DMDATA0;
 		if( (dmdword & 0xf0) == 0x40 )
 		{
 			HandleCommand( dmdword );
 		}
+		GPIOD->BSHR = (1<<(16+6));
 		if( update_targ_based_on_vdd )
 		{
 			// target_feedback is in volts. 0..200 maps to the physical device voltage.

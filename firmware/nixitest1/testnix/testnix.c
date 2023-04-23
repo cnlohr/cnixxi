@@ -104,7 +104,7 @@ int main()
 			{
 				if( set_v > 0 && set_v < 220 )
 				{
-					last_set_v = (uint32_t)(set_v * 3);
+					last_set_v = (uint32_t)(set_v);
 					rmask = ( last_set_v << 16 ) | 0x41;
 				}
 			}

@@ -76,10 +76,24 @@ static void ApplyOnMask( uint16_t onmask )
 	GPIOC->OUTDR = onmask & 0xff;
 }
 
-void ADC1_IRQHandler(void) __attribute__((interrupt));
+// This is an interrupt called by an ADC conversion.  BUT, Notice the .data
+// attribute.  This means this function gets placed into RAM.  Normally this
+// function takes approximately 2.5-3us to execute from flash, but only 2-2.5us
+// to execute from RAM.
+void ADC1_IRQHandler(void)
+	__attribute__((interrupt))
+	__attribute__((section(".data")));
+
 void ADC1_IRQHandler(void)
 {
+	GPIOD->BSHR = 1<<6;
+
 	static uint32_t count;
+
+	// Acknowledge the interrupt. NOTE: Another start request may have fired
+	// while we were servicing the interrupt.  That's probably fine.
+	ADC1->STATR &= ~ADC_EOC;
+
 
 	// This interrupt should happen ~3.5uS based on current compiler.
 	// In many situations this actually will happen slower than that, but what
@@ -199,9 +213,7 @@ void ADC1_IRQHandler(void)
 			ApplyOnMask( fade_disp1 );
 	}
 
-	// Acknowledge the interrupt. NOTE: Another start request may have fired
-	// while we were servicing the interrupt.  That's probably fine.
-	ADC1->STATR &= ~ADC_EOC;
+	GPIOD->BSHR = (1<<(16+6));
 }
 
 static void SetupTimer()
@@ -258,7 +270,7 @@ static void SetupADC()
 
 	// Sampling time for channels. Careful: This has PID tuning implications.
 	// Note to self:  Consider retuning these for 
-	ADC1->SAMPTR2 = (4<<(3*7)) | (3<<(3*8)); 
+	ADC1->SAMPTR2 = (1<<(3*7)) | (2<<(3*8)); 
 		// 0:7 => 3/9/15/30/43/57/73/241 cycles
 		// (4 == 43 cycles), (6 = 73 cycles)  Note these are alrady /2, so 
 		// setting this to 73 cycles actually makes it wait 256 total cycles
@@ -422,8 +434,8 @@ int main()
 	{
 		// DEBUG: Twiddle P6.  We can look on the scope at what's happening
 		// so we can guess at how long the interrupts are taking.
-		GPIOD->BSHR = 1<<6;
-		GPIOD->BSHR = (1<<(16+6));
+		//GPIOD->BSHR = 1<<6;
+		//GPIOD->BSHR = (1<<(16+6));
 
 		uint32_t dmdword = *DMDATA0;
 		if( (dmdword & 0xf0) == 0x40 )

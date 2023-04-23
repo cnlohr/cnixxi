@@ -1,4 +1,3 @@
-// Could be defined here, or in the processor defines.
 #define SYSTEM_CORE_CLOCK 48000000
 
 #include "ch32v003fun.h"
@@ -9,8 +8,8 @@
 uint32_t count;
 
 //#define ENABLE_TUNING
-// VDD Adjusted.
-#define ABSOLUTE_MAX_ADC_SET 208 // Actually around 188V  (0 to 208 maps to 0 to 190V)
+
+#define ABSOLUTE_MAX_ADC_SET 208 // Actually around 190V  (0 to 208 maps to 0 to 190V)
 
 // Do not mess with PWM_ values unless you know what you are willing to go down a very deep rabbit hole. 
 #ifndef ENABLE_TUNING
@@ -20,7 +19,11 @@ int PWM_PERIOD = 140;
 #endif
 int PWM_MAXIMUM_DUTY = 48;  //This actually gets overwrittenin the first few milliseconds onces a system VDD is read.
 
-#define ERROR_P_TERM 1 // Actually a shift.  Normally we would do the opposite to smooth out, but we can realy bang this around!  It's OK if we rattle like crazy. 
+#define ERROR_P_TERM 2 // Actually a shift.  Normally we would do the opposite to smooth out, but we can realy bang this around!  It's OK if we rattle like crazy. 
+
+// We can filter
+#define ADC_IIR 2
+#define VDD_IIR 2
 
 int update_targ_based_on_vdd = 0;
 int target_feedback = 0;
@@ -44,7 +47,8 @@ void ADC1_IRQHandler(void) __attribute__((interrupt));
 void ADC1_IRQHandler(void)
 {
 	// This interrupt should happen ~3.5uS on current settings.
-	int adc = lastadc = ADC1->RDATAR;
+	lastadc = ADC1->RDATAR + (lastadc - (lastadc>>ADC_IIR));
+	int adc = lastadc>>ADC_IIR;
 	int err = target_feedback_vdd_adjusted - adc;
 	ADC1->STATR &= ~ADC_EOC;
 
@@ -58,11 +62,12 @@ void ADC1_IRQHandler(void)
 	}
 
 	int fadepos = (++count) & 0xff;
-	if( fadepos == 0 )
+
+	if( fadepos & 1 )
 	{
 		ADC1->CTLR2 |= ADC_JSWSTART;
 	}
-	else if( fadepos == 2 )
+	else
 	{
 		// Use injection channel data to read vref.
 		// Ballparks:
@@ -82,16 +87,20 @@ void ADC1_IRQHandler(void)
 		//  373 -> 84 // Ratio is 4.440
 		//  240 -> 56 // Ratio is 4.444
 		// Wow! That's nice!
-		lastvdd = ADC1->IDATAR1;
+
+		// TODO: Consider filtering lastvdd.
+		//lastvdd = ADC1->IDATAR1; // Don't filter VDD
+		lastvdd = ADC1->IDATAR1 + (lastvdd - (lastvdd>>VDD_IIR)); // Filter VDD (but now it's 2^VDD_IIR bigger)
 
 #ifndef ENABLE_TUNING
+
 		// IF we aren't enabling tuning, we can update max-on-time with this value.
 		//  There's a neat hack where you can divide by weird decimal divisors by adding and subtracing terms.
 		//  I apply that weird trick here.
 		//  1÷(1÷4−1÷64−1÷128−1÷1024) is roughly equal to dividing by 4.43290
 		//  We actually can simplify it for our purposes as: 1÷(1÷4−1÷64−1÷128)
 		//
-		PWM_MAXIMUM_DUTY = (lastvdd>>2) - (lastvdd>>6) - (lastvdd>>7); // lastvdd / 4.44.  For ~5V, this works out to 45, for ~3.3V it works out to ~70.
+		PWM_MAXIMUM_DUTY = (lastvdd>>(2+VDD_IIR)) - (lastvdd>>(6+VDD_IIR)) - (lastvdd>>(7+VDD_IIR)); // lastvdd / 4.44.  For ~5V, this works out to 45, for ~3.3V it works out to ~70.
 #endif
 		update_targ_based_on_vdd = 1;
 	}
@@ -261,7 +270,7 @@ static void HandleCommand( uint32_t dmdword )
 	}
 	}
 
-	*DMDATA0 = (lastadc << 12) | (lastvdd << 22);
+	*DMDATA0 = ((lastadc>>ADC_IIR) << 12) | ((lastvdd>>VDD_IIR) << 22);
 }
 
 int main()
@@ -325,7 +334,7 @@ int main()
 			// 680 = 192 * 373 / x = (373*680)/192 = 105.317647059
 			//  Close enough to 128.
 			//
-			target_feedback_vdd_adjusted = (target_feedback * lastvdd) >> 7;
+			target_feedback_vdd_adjusted = (target_feedback * lastvdd) >> (7+VDD_IIR);
 			update_targ_based_on_vdd = 0;
 		}
 	}

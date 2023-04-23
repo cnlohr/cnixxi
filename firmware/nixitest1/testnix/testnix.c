@@ -156,8 +156,8 @@ int main()
 		if( r ) { printf( "R: %d\n", r ); status = 0; goto retry; }
 
 		printf( "%08x\n", status );
-		float voltvdd = 1.21/(((status>>22)&0x3ff)/1023.0f); // vref = 2.2v
-		float voltage = ((((float)((status>>12)&0x3ff))/1023.0f)*100.0)*voltvdd;
+		float voltvdd = 1.20/(((status>>22)&0x3ff)/1023.0f); // vref = 2.2v
+		float voltage = ((((float)((status>>12)&0x3ff))/1023.0f)*101.0)*voltvdd; //101 because it's 10k + 1M
 		// Measured @ 176 reported here, but 180 in reality if ref is 1.2.  But 1.21 fixes it.
 		volthist[volthisthead] = voltage;
 		volthistvdd[volthisthead] = voltvdd;

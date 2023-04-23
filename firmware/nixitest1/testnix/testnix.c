@@ -11,7 +11,7 @@ int targetnum = 0;
 int lastsettarget = -1;
 #define VOLTAGE_SCALE 2.01
 
-const char * targdisp[] = { "F", " ", "0", "9", "8", "7", "6", "5", "4", "3", "2", "1", ".", "N" };
+const char * targdisp[] = { "D", "F", " ", "0", "9", "8", "7", "6", "5", "4", "3", "2", "1", ".", "N" };
 void HandleKey( int keycode, int bDown )
 {
 	if( bDown )
@@ -32,6 +32,7 @@ void HandleKey( int keycode, int bDown )
 		case '-': case '_': targetnum = 11; break;
 		case '=': case '+': targetnum = 12; break;
 		case 'f': case 'F': targetnum = -1; break;
+		case 'd': case 'D': targetnum = -2; break;
 	}
 	}
 }
@@ -133,10 +134,31 @@ int main()
 			int disp0 = 10-((fadegroup+1)%11);
 			int disp1 = 10-((fadegroup+0)%11);
 			rmask = (time1<<24)|(time0<<16)|(disp1<<12)|(disp0<<8)|0x43;
+			lastsettarget = targetnum;
 		}
 		else if( lastsettarget != targetnum )
 		{
-			rmask = 0x00000042 | (targetnum<<16);
+			if( targetnum == -2 )
+			{
+				static int fadeplace;
+				fadeplace+=1;
+				int fadegroup = (fadeplace)>>8;
+				int timeinfade = fadeplace&0xff;
+				int time0 = 60;
+				int time1 = 120;
+				int disp0 = 3;
+				int disp1 = 4;
+				rmask = (time1<<24)|(time0<<16)|(disp1<<12)|(disp0<<8)|0x43;
+				lastsettarget = targetnum;
+			}
+			else if( targetnum == -1 )
+			{
+				// Do nothing
+			}
+			else
+			{
+				rmask = 0x00000042 | (targetnum<<16);
+			}
 			lastsettarget = targetnum;
 		}
 		else
@@ -176,7 +198,7 @@ int main()
 		{
 			CNFGPenX = 200+x;
 			CNFGPenY = 1+y;
-			CNFGDrawText( targdisp[targetnum+1], 10 );
+			CNFGDrawText( targdisp[targetnum+2], 10 );
 		}
 
 		CNFGColor( BLUEGLOW );

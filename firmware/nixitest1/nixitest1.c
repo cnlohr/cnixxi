@@ -41,7 +41,7 @@ int PWM_MAXIMUM_DUTY = 48;  //This is changed based on vdd.
 // We can use Binary-shift IIR filters to filter the incoming ADC signals.
 // See later in the code, but, it maps to only about 4 assembly instructions!
 // (plus a read-back of the previous value we will be mixing).
-#define ADC_IIR 1
+#define ADC_IIR 2
 #define VDD_IIR 3
 
 // When we get a new vdd measurement, we can update our target_feedback value
@@ -242,7 +242,11 @@ static void SetupADC()
 	// Reset the ADC to init all regs
 	RCC->APB2PRSTR |= RCC_APB2Periph_ADC1;
 	RCC->APB2PRSTR &= ~RCC_APB2Periph_ADC1;
-	
+
+	// ADCCLK = 12 MHz => RCC_ADCPRE = 0: divide by 4
+	RCC->CFGR0 &= ~RCC_ADCPRE;  // Clear out the bis in case they were set
+	RCC->CFGR0 |= RCC_ADCPRE_DIV4;	// set it to 010xx for /4.
+
 	// Set up single conversion on chl 7
 	ADC1->RSQR1 = 0;
 	ADC1->RSQR2 = 0;
@@ -252,8 +256,9 @@ static void SetupADC()
 	// group numbers is actually 4-group numbers.
 	ADC1->ISQR = 8 | (3<<20);
 
-	// Sampling time for channels. Careful: This has PID tuning implications
-	ADC1->SAMPTR2 = (4<<(3*7)) | (2<<(3*8)); 
+	// Sampling time for channels. Careful: This has PID tuning implications.
+	// Note to self:  Consider retuning these for 
+	ADC1->SAMPTR2 = (4<<(3*7)) | (3<<(3*8)); 
 		// 0:7 => 3/9/15/30/43/57/73/241 cycles
 		// (4 == 43 cycles), (6 = 73 cycles)  Note these are alrady /2, so 
 		// setting this to 73 cycles actually makes it wait 256 total cycles

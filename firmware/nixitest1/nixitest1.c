@@ -119,7 +119,10 @@ void ADC1_IRQHandler(void)
 	plant = ( plant < 0 ) ? 0 : plant;
 	TIM1->CH2CVR = plant;
 
-	int fadepos = (++count) & 0xff;
+	// We can in-line increment count and mask it off, so we then have a number
+	// from 0 ... 255 that will let us do things at specific times, like fade
+	// the cathodes or read the VDD ADC.
+	int fadepos = ( ++count ) & 0xff;
 
 	// Only bother getting VDDs every other ADC cycle.
 	if( fadepos & 1 )

@@ -129,7 +129,7 @@ void ADC1_IRQHandler(void)
 	else
 	{
 		// Use injection channel data to read vref.
-		// Ballparks (for unfiltered numbers)
+		// Ballparks (for unfiltered numbers)  (Just as a note)
 		//   0xF0  / 240 for 5V input << lastrefvdd
 		//	 0x175 / 373 for 3.3v input << lastrefvdd
 

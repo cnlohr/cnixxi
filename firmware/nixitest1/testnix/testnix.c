@@ -5,8 +5,7 @@
 
 #include "../../ch32v003fun/minichlink/minichlink.h"
 
-
-#define ENABLE_TUNING
+//#define ENABLE_TUNING
 
 int targetnum = 0;
 int lastsettarget = -1;
@@ -155,7 +154,12 @@ int main()
 		if( ( status & 0xc0 ) == 0x40 ) goto retry;
 		if( r ) { printf( "R: %d\n", r ); status = 0; goto retry; }
 
-		printf( "%08x\n", status );
+		CNFGColor( 0xc0c0c0ff );
+		CNFGPenX = 590;
+		CNFGPenY = 1;
+		sprintf( cts, "%08x", status );
+		CNFGDrawText( cts, 2 );
+
 		float voltvdd = 1.20/(((status>>22)&0x3ff)/1023.0f); // vref = 2.2v
 		float voltage = ((((float)((status>>12)&0x3ff))/1023.0f)*101.0)*voltvdd; //101 because it's 10k + 1M
 		// Measured @ 176 reported here, but 180 in reality if ref is 1.2.  But 1.21 fixes it.

@@ -3,33 +3,56 @@
 #include "ch32v003fun.h"
 #include <stdio.h>
 
-#define APB_CLOCK SYSTEM_CORE_CLOCK
+// Limits the "ADC Set Value" in volts.
+// This prevents us from exceeding 190 volts target.
+#define ABSOLUTE_MAX_ADC_SET 190
 
-uint32_t count;
-
-//#define ENABLE_TUNING
-
-#define ABSOLUTE_MAX_ADC_SET 208 // Actually around 190V  (0 to 208 maps to 0 to 190V)
-
-// Do not mess with PWM_ values unless you know what you are willing to go down a very deep rabbit hole. 
+// Do not mess with PWM_ values unless you know what you are willing to go down
+// a very deep rabbit hole. I experimentally determined 140 for this particular
+// system was on the more efficient side of things and gave good dynamic range.
+// 140 means it's 48MHz / 140 = 342 kHz for the main flyback frequency.
+//
+// You can explore values by doing ENABLE_TUNING in here and in testnix.c
+// #define ENABLE_TUNING
 #ifndef ENABLE_TUNING
 #define PWM_PERIOD 140
 #else
 int PWM_PERIOD = 140;
 #endif
-int PWM_MAXIMUM_DUTY = 48;  //This actually gets overwrittenin the first few milliseconds onces a system VDD is read.
+int PWM_MAXIMUM_DUTY = 48;  //This is changed based on vdd.
 
-#define ERROR_P_TERM 2 // Actually a shift.  Normally we would do the opposite to smooth out, but we can realy bang this around!  It's OK if we rattle like crazy. 
 
-// We can filter
+// Flyback Tuning Parameters
+// This controls how actively we should push back on error in our P loop.
+// Many times people use PID controllers to get very good control of control
+// systems. But, for us, P is good enough. And, this term basically being 2^
+// is plenty of control.
+#define ERROR_P_TERM 2
+
+// We can use Binary-shift IIR filters to filter the incoming ADC signals.
+// See later in the code, but, it maps to only about 4 assembly instructions!
+// (plus a read-back of the previous value we will be mixing)
 #define ADC_IIR 2
 #define VDD_IIR 2
 
+// When we get a new vdd measurement, we can update our target_feedback value
+// based on VDD. This doesn't need to happen very often at all! But because
+// the ADC in the CH32V003 measures between GND and VDD, we have to make sure
+// that is taken into account, because the measured voltage feedback value
+// from the high voltage side will be scaled, based on incoming VDD.
 int update_targ_based_on_vdd = 0;
+
+// Target feedback, set by the user.
 int target_feedback = 0;
-int target_feedback_vdd_adjusted = 0;
+
+// Feedback based on what the user set and the part's VDD.
+int feedback_vdd = 0;
+
+// Filtered ADC and VDD values.
 int lastadc = 0;
-int lastvdd = 0;
+int lastrefvdd = 0;
+
+// Code for handling numeric fading, between 2 numbers or alone.
 int fade_enable = 0;
 int fade_time0;
 int fade_time1;
@@ -37,6 +60,7 @@ int fade_disp0;
 int fade_disp1;
 int fade_place = 0;
 
+// Apply a given output mask to the GPIO ports the nixie tubes are hooked into.
 static void ApplyOnMask( uint16_t onmask )
 {
 	GPIOD->OUTDR = onmask >> 8;
@@ -46,23 +70,38 @@ static void ApplyOnMask( uint16_t onmask )
 void ADC1_IRQHandler(void) __attribute__((interrupt));
 void ADC1_IRQHandler(void)
 {
-	// This interrupt should happen ~3.5uS on current settings.
+	static uint32_t count;
+
+	// This interrupt should happen ~3.5uS based on current compiler.
+	// In many situations this actually will happen slower than that, but what
+	// matters is that our ADC sample is ALWAYS ALIGNED to the PWM, that way
+	// any ripple and craziness that happens from the chopping of the flyback
+	// is completely filtered out because of where we are sampling.
+
+	// This performs a low-pass filter on our data, ADC1->RDATAR
+	// the sample rate, always.  As a side note, the value of the IIR
+	// (but now it's 2^VDD_IIR bigger)
 	lastadc = ADC1->RDATAR + (lastadc - (lastadc>>ADC_IIR));
-	int adc = lastadc>>ADC_IIR;
-	int err = target_feedback_vdd_adjusted - adc;
+
+
+	int err = feedback_vdd - lastadc;
 	ADC1->STATR &= ~ADC_EOC;
 
 	if( err < 0 )
 		TIM1->CH2CVR = 0;
 	else
 	{
-		err = err << ERROR_P_TERM;
+		// Careful with shifting.  If you shift right by say ADC_IIR
+		// then shift left, you will lose bits of precision.
+		err = err >> ( ADC_IIR - ERROR_P_TERM );
+
 		if( err > PWM_MAXIMUM_DUTY ) err = PWM_MAXIMUM_DUTY;
 		TIM1->CH2CVR = err;
 	}
 
 	int fadepos = (++count) & 0xff;
 
+	// Only bother getting VDDs every other ADC cycle.
 	if( fadepos & 1 )
 	{
 		ADC1->CTLR2 |= ADC_JSWSTART;
@@ -70,15 +109,15 @@ void ADC1_IRQHandler(void)
 	else
 	{
 		// Use injection channel data to read vref.
-		// Ballparks:
-		//   0xF0  / 240 for 5V input << lastvdd
-		//	 0x175 / 373 for 3.3v input << lastvdd
+		// Ballparks (for unfiltered numbers)
+		//   0xF0  / 240 for 5V input << lastrefvdd
+		//	 0x175 / 373 for 3.3v input << lastrefvdd
 		// Tunings (experimentally found)
 		//  Duty/Period
-		//  100/160 will literally cook the LEDs but can get up to 180V @ 3.3V under load.
+		//  100/160 cooks the XFRM but can get up to 180V @ 3.3V under load.
 		//  48/120  is more efficient than 48/96 at 3.3v.  (139V)
 		//  60/112  is pretty efficient, too.  (150V)
-		//  84/140 = 176V (reported, 180 actual) with 8 at 3.3   <<< This is a really nice thing to run at on 3.3V
+		//  84/140 = 176V (reported, 180 actual) with 8 at 3.3  (runs great)
 		//			The transformer DOES get very warm though.
 		//  Backto 5V.
 		//  54/140 --> Is what it is is for 5V if period is set to 140.
@@ -88,45 +127,75 @@ void ADC1_IRQHandler(void)
 		//  240 -> 56 // Ratio is 4.444
 		// Wow! That's nice!
 
-		// TODO: Consider filtering lastvdd.
-		//lastvdd = ADC1->IDATAR1; // Don't filter VDD
-		lastvdd = ADC1->IDATAR1 + (lastvdd - (lastvdd>>VDD_IIR)); // Filter VDD (but now it's 2^VDD_IIR bigger)
+		// Do an IIR low-pass filter on VDD. See IIR discussion above.
+		lastrefvdd = ADC1->IDATAR1 + (lastrefvdd - (lastrefvdd>>VDD_IIR)); 
 
 #ifndef ENABLE_TUNING
 
-		// IF we aren't enabling tuning, we can update max-on-time with this value.
-		//  There's a neat hack where you can divide by weird decimal divisors by adding and subtracing terms.
-		//  I apply that weird trick here.
-		//  1÷(1÷4−1÷64−1÷128−1÷1024) is roughly equal to dividing by 4.43290
-		//  We actually can simplify it for our purposes as: 1÷(1÷4−1÷64−1÷128)
+		// If we aren't enabling tuning, we can update max on time here. We
+		// want to limit on-time based on DC voltage on the flyback so that
+		// we can get close to (But not get into) saturation of the flyback
+		// transformer's core.
 		//
-		PWM_MAXIMUM_DUTY = (lastvdd>>(2+VDD_IIR)) - (lastvdd>>(6+VDD_IIR)) - (lastvdd>>(7+VDD_IIR)); // lastvdd / 4.44.  For ~5V, this works out to 45, for ~3.3V it works out to ~70.
+		// We can compute expected values, but experimenting is better.
+		// Transformer inductance is ~6uH.
+		// Our peak current is ~500mA
+		// The average voltage is ~4V
+		//
+		//   4V / .000006H = 0.5A / 666666A/s = 750nS but turns out this was
+		//    pessemistic.
+		//
+		// Experimentation showed that the core of the transformer saturates
+		// in about 1uS at 5V and 1.4uS at 3.3v.  More specifically the
+		// relationhip between our maximum on-time and vref-measured-by-vdd
+		// works out to about:
+		//
+		//    max_on_time_slices = lastrefvdd / 4.44.
+		//
+		// There's a neat trick where you can divide by weird decimal divisors
+		// by adding and subtracing terms. We perform this trick here and below
+		//
+		// 1÷(1÷4−1÷64−1÷128−1÷1024) is roughly equal to dividing by 4.43290
+		// We actually can simplify it for our purposes as: 1÷(1÷4−1÷64−1÷128)
+		//
+		// You can arbitrarily add and subtract terms to get as closed to your
+		// desired target value as possbile.
+		//
+		// When we divide a value by powers-of-two, it becomes a bit shift.
+		//
+		// The bit shift and IIR adjustments can be made so that the compiler
+		// can optimize out the addition there.
+		//
+		// The following code actually
+		PWM_MAXIMUM_DUTY = 
+			  (lastrefvdd>>(2+VDD_IIR)) 
+			- (lastrefvdd>>(6+VDD_IIR))
+			- (lastrefvdd>>(7+VDD_IIR));
 #endif
+
+		// Tell our main loop that we have a new VDD if it wants it.
 		update_targ_based_on_vdd = 1;
 	}
 
 	if( fade_enable )
 	{
-		if( fadepos < fade_time0 )
+		// Digit fade.  Use fade_timeX and fade_dispX to handle fade logic.
+		if( fadepos == fade_time0 )
+			ApplyOnMask( 0 );
+		else if( fadepos == 0 )
 			ApplyOnMask( fade_disp0 );
-		else if( fadepos == fade_time0 )
-			ApplyOnMask( 0 );
-		else if( fadepos < fade_time1 )
+		else if( fadepos == fade_time1 ) 
+			ApplyOnMask( 0 ); // Only useful if we want to have two dim segs on
+		else if( fadepos == fade_time0 + 1 )
 			ApplyOnMask( fade_disp1 );
-		else
-			ApplyOnMask( 0 );
 	}
+
 }
 
 static void SetupTimer()
 {
-	// Main inductor is ~5uH.
-	// Our peak current is ~200mA
-	// Our target cycle duty is ~1/6
-	// Our nominal voltage is ~4V
-	// 4V / .000005H = 800000A/s / 0.2 = 0.00000025 = 250nS, but we are only on for 1/6 of the time., or 1.5uS.  Let's set our period to be 64/48 = 652nS.
-
-	// GPIO A1 Push-Pull, Auto Function, 50 MHz Drive Current
+	// GPIO A1 Push-Pull, Auto Function, 50 MHz Drive Current.
+	// This goes to our switching FET for our flyback.
 	GPIOA->CFGLR &= ~(0xf<<(4*1));
 	GPIOA->CFGLR |= (GPIO_Speed_50MHz | GPIO_CNF_OUT_PP_AF)<<(4*1);
 
@@ -134,15 +203,17 @@ static void SetupTimer()
 	RCC->APB2PRSTR |= RCC_APB2Periph_TIM1;
 	RCC->APB2PRSTR &= ~RCC_APB2Periph_TIM1;
 
-	TIM1->PSC = 0x0000;  // Prescalar to 0x0000 (so, 24MHz base clock)
+	TIM1->PSC = 0x0000;  // Prescalar to 0x0000 (so, 48MHz base clock)
 	TIM1->ATRLR = PWM_PERIOD;
 	TIM1->SWEVGR = TIM_UG;
 	TIM1->CCER = TIM_CC2E | TIM_CC2NP;  // CH2 is control for FET.
 	TIM1->CHCTLR1 = TIM_OC2M_2 | TIM_OC2M_1;
 
-	TIM1->CH2CVR = 0;  // Actual duty cycle.
+	TIM1->CH2CVR = 0;  // Actual duty cycle (Off to begin with)
 
-	// Setup TRGO for ADC.  TODO: this should be on update (TIM_MMS_1)
+	// Setup TRGO for ADC.  This makes is to the ADC will trigger on timer
+	// reset, so we trigger at the same position every time relative to the
+	// FET turning on.
 	TIM1->CTLR2 = TIM_MMS_1;
 
 	// Enable TIM1 outputs
@@ -180,7 +251,7 @@ static void SetupADC()
 	ADC1->CTLR2 |= ADC_RSTCAL;
 	while(ADC1->CTLR2 & ADC_RSTCAL);
 
-	// Calibrate
+	// Calibrate ADC
 	ADC1->CTLR2 |= ADC_CAL;
 	while(ADC1->CTLR2 & ADC_CAL);
 
@@ -188,11 +259,13 @@ static void SetupADC()
 	NVIC_EnableIRQ( ADC_IRQn );
 
 	// Enable the End-of-conversion interrupt.
-	ADC1->CTLR1 = ADC_EOCIE | ADC_SCAN | ADC_JDISCEN;
+	ADC1->CTLR1 = ADC_EOCIE | ADC_JDISCEN;
 }
 
 uint16_t GenOnMask( int segmenton )
 {
+	// Produce a bit mask with only one bit on. To indicate the IO to turn on
+	// to light up a given segment.  If segmenton == 0, then all IO are off.
 	if( segmenton > 0 )
 	{
 		segmenton--;
@@ -212,16 +285,21 @@ uint16_t GenOnMask( int segmenton )
 
 static void HandleCommand( uint32_t dmdword )
 {
-	// ./minichlink -s 0x04 0x01110040
-	// ./minichlink -g 0x04
-	// It is a valid status word back from the PC.
+	// You can use minichlink to setup this:
+	// ./minichlink -s 0x04 0x00B40041 # Configure for 180V.
+	// ./minichlink -s 0x04 0x00030042 # Light digit "8"
+	// ./minichlink -g 0x04            # Get status.
+
+	// Note: To get here, DEBUG0's LSB must be 0x4x command is that 'x'
 	int command = dmdword & 0x0f;
+
 	switch( command )
 	{
 	case 1:
 	{
-		int feedback = dmdword>>16;
-		if( feedback > ABSOLUTE_MAX_ADC_SET ) feedback = ABSOLUTE_MAX_ADC_SET;
+		int feedback = dmdword >> 16;
+		if( feedback > ABSOLUTE_MAX_ADC_SET )
+			feedback = ABSOLUTE_MAX_ADC_SET;
 		target_feedback = feedback;
 		break;
 	}
@@ -231,6 +309,9 @@ static void HandleCommand( uint32_t dmdword )
 
 		// Disable all fading.
 		fade_enable = 0;
+
+		// Allow at least a microsecond or so to turn cathode off.
+		ApplyOnMask( 0 );
 
 		ApplyOnMask( GenOnMask( segmenton ) );
 		break;
@@ -270,25 +351,30 @@ static void HandleCommand( uint32_t dmdword )
 	}
 	}
 
-	*DMDATA0 = ((lastadc>>ADC_IIR) << 12) | ((lastvdd>>VDD_IIR) << 22);
+	// Write the status back to the host PC.  Status is our VDD and our FB V
+	*DMDATA0 = ((lastadc>>ADC_IIR) << 12) | ((lastrefvdd>>VDD_IIR) << 22);
 }
 
 int main()
 {
 	SystemInit48HSI();
+
+	// For the ability to printf() if we want.
 	SetupDebugPrintf();
+
+	// Let signals settle.
 	Delay_Ms( 10 );
 
 	// Enable Peripherals
-	RCC->APB2PCENR |= RCC_APB2Periph_GPIOD | RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOA
-				   | RCC_APB2Periph_TIM1 | RCC_APB2Periph_ADC1;
+	RCC->APB2PCENR |= RCC_APB2Periph_GPIOD | RCC_APB2Periph_GPIOC |
+		RCC_APB2Periph_GPIOA | RCC_APB2Periph_TIM1 | RCC_APB2Periph_ADC1;
 
 	GPIOD->CFGLR = 
-		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*6) | // GPIO D6 Push-Pull  (for debug)
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*6) | // GPIO D6 Debug
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*7) | // DIG_AUX
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*3) | // DIG_9
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*2) | // DIG_8
-		(GPIO_Speed_10MHz | GPIO_CNF_IN_FLOATING)<<(4*1) | // Leave PGM pin floating, dont make it an ADC.
+		(GPIO_Speed_10MHz | GPIO_CNF_IN_FLOATING)<<(4*1) | // PGM Floats.
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*0);  // DIG_DOT
 
 	GPIOC->CFGLR = 
@@ -301,9 +387,7 @@ int main()
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*6) | // DIG_6
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*7);  // DIG_7
 
-		
-
-	GPIOC->BSHR = 1<<4;
+	ApplyOnMask( 0 );
 
 	SetupADC();
 	SetupTimer();
@@ -314,27 +398,61 @@ int main()
 
 	while(1)
 	{
+		// DEBUG: Twiddle P6.  We can look on the scope at what's happening
+		// so we can guess at how long the interrupts are taking.
 		GPIOD->BSHR = 1<<6;
+		GPIOD->BSHR = (1<<(16+6));
+
 		uint32_t dmdword = *DMDATA0;
 		if( (dmdword & 0xf0) == 0x40 )
 		{
+			// I think there is a compiler bug here.  For some reason if I put
+			// the code in this function right here, it doesn't work right.
+			// so I encapsulated the code in a function.
+			//
+			// This function handles commands we get over the programming
+			// interface.  Like 
 			HandleCommand( dmdword );
 		}
-		GPIOD->BSHR = (1<<(16+6));
 		if( update_targ_based_on_vdd )
 		{
-			// target_feedback is in volts. 0..200 maps to the physical device voltage.
-			// lastvdd = 0xF0  for 5V input.
-			// lastvdd = 0x175 for 3.3v input.
+			// target_feedback is in volts. 0..200 maps to the device voltage.
+			// lastrefvdd = 0xF0  for 5V input.
+			// lastrefvdd = 0x175 for 3.3v input.
 			//
-			// target_feedback_vdd_adjusted = 408 for ~192V @ 5
-			// target_feedback_vdd_adjusted = 680 for ~192V @ 3.3
+			// feedback_vdd = 408 for ~192V @ 5
+			// feedback_vdd = 680 for ~192V @ 3.3
 			//
 			// 408 = 192 * 240 / x = (192*240)/408 = 112.941176471
 			// 680 = 192 * 373 / x = (373*680)/192 = 105.317647059
-			//  Close enough to 128.
 			//
-			target_feedback_vdd_adjusted = (target_feedback * lastvdd) >> (7+VDD_IIR);
+			//  More tests showed this value across units is around 117.
+			//
+			// X This becomes our denominator.
+			// feedback_vdd = (current vdd measurement * target voltage) / 117
+			// 
+			// Further testing identified that the denominator is almost
+			// exactly 117.  We can perform a divison by 117 very quickly by
+			//
+			//   feedback = numerator/128 + numerator/2048 + numerator/4096
+			//
+			// See note above about the constant division trick.
+			//
+			// Side-note:
+			// The reason we do this in the main loop instead of the interrupt
+			// is because it uses a multiply.  The CH32V003 does not natively
+			// have a multiply instruction, so this actually calls out to
+			// __mulsi3 in libgcc.a.  As a note, it's time complexity is
+			// determined by the size of the right-hand value of multiply,
+			// which you should try to make the value which is typically
+			// the smaller one.
+
+			uint32_t numerator = (lastrefvdd * target_feedback);
+			feedback_vdd =
+				(numerator>>(7+VDD_IIR-ADC_IIR)) +
+				(numerator>>(11+VDD_IIR-ADC_IIR)) + 
+				(numerator>>(12+VDD_IIR-ADC_IIR));
+
 			update_targ_based_on_vdd = 0;
 		}
 	}

@@ -1,3 +1,16 @@
+//
+// cnixi - ch32v003 base driver.  
+//
+// Fully integrated PI flyback PSU controller + Nixie Tube output
+// control with up to 2 channel simultaneous dimming.
+//
+// Copyright 2023 <>< Charles Lohr, under the MIT-X11 license or NewBSD
+// license, you choose.
+//
+// Note: Before running this, you should run the optionbytes folder script
+// in order configure RESET as a GPIO so you can use the AUX input as well
+// as forcing the watchdog on by default. 
+
 #define SYSTEM_CORE_CLOCK 48000000
 
 #include "ch32v003fun.h"
@@ -5,6 +18,7 @@
 
 static uint16_t GenOnMask( int segmenton );
 static void ApplyOnMask( uint16_t onmask );
+static inline void WatchdogPet();
 
 // Limits the "ADC Set Value" in volts.
 // This prevents us from exceeding 190 volts target.
@@ -227,6 +241,9 @@ void ADC1_IRQHandler(void)
 		}
 	}
 
+	// Pet the watchdog.  If we got here, things should be OK.
+	WatchdogPet();
+
 //	GPIOD->BSHR = (1<<(16+6));
 }
 
@@ -402,15 +419,36 @@ static void HandleCommand( uint32_t dmdword )
 	*DMDATA0 = ((lastadc>>ADC_IIR) << 12) | ((lastrefvdd>>VDD_IIR) << 22);
 }
 
+static inline void WatchdogPet()
+{
+	// Pet watchdog for the rest of startup.
+	IWDG->CTLR = 0xAAAA;
+}
+
+static inline void WatchdogSetup()
+{
+	// Setup watchdog.
+	IWDG->CTLR = 0x5555;
+	while( IWDG->STATR & IWDG_PVU );
+	IWDG->PSCR = 1;  // div LSI by 8 (4 seems unreliable)
+	IWDG->RLDR = 0xFFF;
+	IWDG->CTLR = 0xCCCC;
+	WatchdogPet();
+}
+
 int main()
 {
+	// Configure a watchdog timer so if the chip goes crazy it will reset.
+	WatchdogSetup();
+
+	// Use internall RC oscillator + 2xPLL to generate 48 MHz system clock.
 	SystemInit48HSI();
 
 	// For the ability to printf() if we want.
 	SetupDebugPrintf();
 
-	// Let signals settle.
-	Delay_Ms( 10 );
+	// Pet watchdog for the rest of startup.
+	WatchdogPet();
 
 	// Enable Peripherals
 	RCC->APB2PCENR |= RCC_APB2Periph_GPIOD | RCC_APB2Periph_GPIOC |

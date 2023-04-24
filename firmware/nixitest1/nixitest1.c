@@ -421,18 +421,18 @@ static void HandleCommand( uint32_t dmdword )
 
 static inline void WatchdogPet()
 {
-	// Pet watchdog for the rest of startup.
+	// Writing 0xaaaa into the ctlr prevents the watchdog from killing us.
 	IWDG->CTLR = 0xAAAA;
 }
 
 static inline void WatchdogSetup()
 {
 	// Setup watchdog.
-	IWDG->CTLR = 0x5555;
-	while( IWDG->STATR & IWDG_PVU );
-	IWDG->PSCR = 1;  // div LSI by 8 (4 seems unreliable)
-	IWDG->RLDR = 0xFFF;
-	IWDG->CTLR = 0xCCCC;
+	IWDG->CTLR = 0x5555; // Go into watchdog setup mode.
+	while( IWDG->STATR & IWDG_PVU ); // Wait for PSCR to become recepitve.
+	IWDG->PSCR = 1;      // div LSI by 8 (4 seems unreliable)
+	IWDG->RLDR = 0xFFF;  // reload watchdog, not important don't need to check.
+	IWDG->CTLR = 0xCCCC; // commit registers.
 	WatchdogPet();
 }
 

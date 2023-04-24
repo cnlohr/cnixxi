@@ -114,8 +114,11 @@ int main()
 			}
 			else if( setx > w - 200 )
 			{
-				last_set_v = set_v;
-				rmask = (last_set_v<<16) | 0xaa45;
+				if( set_v > 0 )
+				{
+					last_set_v = set_v;
+					rmask = (last_set_v<<16) | 0xaa45;
+				}
 			}
 #ifdef ENABLE_TUNING
 			else if( setx > w - 300 )

@@ -106,7 +106,7 @@ int main()
 			float set_v = (450 - sety)/2;
 			if( setx > w - 100 )
 			{
-				if( set_v > 0 && set_v < 220 )
+				if( set_v >= 0 && set_v < 220 )
 				{
 					last_set_v = (uint32_t)(set_v);
 					rmask = ( last_set_v << 16 ) | 0x41;
@@ -114,10 +114,10 @@ int main()
 			}
 			else if( setx > w - 200 )
 			{
-				if( set_v > 0 )
+				if( set_v >= 0 )
 				{
-					last_set_v = set_v;
-					rmask = (last_set_v<<16) | 0xaa45;
+					aux_value = set_v;
+					rmask = (aux_value<<16) | 0xaa45;
 				}
 			}
 #ifdef ENABLE_TUNING

@@ -1,5 +1,5 @@
 //
-// cnixi - ch32v003 base driver.  
+// cnixi - ch32v003 base driver for IN-15 nixie tubes.
 //
 // Fully integrated PI flyback PSU controller + Nixie Tube output
 // control with up to 2 channel simultaneous dimming.

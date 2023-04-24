@@ -3,6 +3,9 @@
 #include "ch32v003fun.h"
 #include <stdio.h>
 
+static uint16_t GenOnMask( int segmenton );
+static void ApplyOnMask( uint16_t onmask );
+
 // Limits the "ADC Set Value" in volts.
 // This prevents us from exceeding 190 volts target.
 #define ABSOLUTE_MAX_ADC_SET 190
@@ -30,10 +33,10 @@ int PWM_MAXIMUM_DUTY = 48;  //This is changed based on vdd.
 //
 // Honestly, this is MUCH more sophisticated than it needs to be!  I was using
 // a P-only loop for quite some time without any issues.
-#define ERROR_P_TERM 2
-#define ERROR_D_TERM -3
-#define PID_SAT_MAX 4096
-#define PID_SAT_MIN -2048
+#define ERROR_P_TERM 3
+//#define ERROR_D_TERM -2 // Derivative term not used.
+#define I_SAT_MAX 4096  // I sat disabled.  
+#define I_SAT_MIN -2048 // I sat disabled.
 #define ERROR_I_TERM -6
 
 // We filter our ADC inputs because they are kind of noisy.
@@ -55,20 +58,21 @@ int lastadc = 0;
 int lastrefvdd = 0;
 
 // Code for handling numeric fading, between 2 numbers or alone.
-int fade_enable = 0;
-int fade_time0;
-int fade_time1;
-int fade_disp0;
-int fade_disp1;
-int fade_place = 0;
 
-// Apply a given output mask to the GPIO ports the nixie tubes are hooked into.
-static void ApplyOnMask( uint16_t onmask )
+uint16_t fade_time0, fade_time1;
+uint16_t fade_disp0, fade_disp1;
+
+static uint32_t HandleFade( uint8_t fadepos )  __attribute__((section(".data")));
+static uint32_t HandleFade( uint8_t fadepos )
 {
-	GPIOD->OUTDR = onmask >> 8;
-	GPIOC->OUTDR = onmask & 0xff;
+	// Digit fade.  Use fade_timeX and fade_dispX to handle fade logic.
+	if( fadepos < fade_time0 )
+		return fade_disp0;
+	else if( fadepos < fade_time1 ) 
+		return fade_disp1;
+	else
+		return 0;
 }
-
 
 // FYI You can use functions in ram to make them work faster.  The .data
 // attribute. This means this function gets placed into RAM. Normally this
@@ -78,18 +82,23 @@ static void ApplyOnMask( uint16_t onmask )
 
 // This is an interrupt called by an ADC conversion.
 void ADC1_IRQHandler(void)
-	__attribute__((interrupt));
+	__attribute__((interrupt))
+	__attribute__((section(".data")));
 
 void ADC1_IRQHandler(void)
 {
-	static uint32_t count;
+// If you want to see how long this functon takes to run, you can use a scope and
+// then monitor pin D6 if you uncomment this and the bottom copy.
+//	GPIOD->BSHR = 1<<6;
+
 	uint32_t statr = ADC1->STATR;
+	// Acknowledge pending interrupts.
+	ADC1->STATR = 0;
 
 	if( statr & ADC_JEOC )
 	{
-	GPIOD->BSHR = 1<<6;
 		// Acknowledge the interrupt.
-		ADC1->STATR &= ~ADC_JEOC;
+		
 
 		// It is crucial that our ADC sample is ALWAYS ALIGNED to the PWM, that
 		// way any ripple and craziness that happens from the chopping of the
@@ -102,18 +111,20 @@ void ADC1_IRQHandler(void)
 		int newadc = adcraw + (lastadc - (lastadc>>ADC_IIR));
 		lastadc = newadc;
 
-
 		int err = feedback_vdd - lastadc;
 
-		static int lasterr;
 		static int integral;
-		int derivative = -(err - lasterr);
+
+		// D term is not used.
+		//static int lasterr;
+		//int derivative = (err - lasterr);
+		//lasterr = err;
 		integral += err;
 
 		// We asymmetrically allow the integral to saturate, to help prevent long-
 		// term oscillations.
-		integral = ( integral > ((PID_SAT_MAX)<<ADC_IIR) ) ? ((PID_SAT_MAX)<<ADC_IIR) : integral;
-		integral = ( integral < ((PID_SAT_MIN)<<ADC_IIR) ) ? ((PID_SAT_MIN)<<ADC_IIR) : integral;
+		integral = ( integral > ((I_SAT_MAX)<<ADC_IIR) ) ? ((I_SAT_MAX)<<ADC_IIR) : integral;
+		integral = ( integral < ((I_SAT_MIN)<<ADC_IIR) ) ? ((I_SAT_MIN)<<ADC_IIR) : integral;
 
 		// This is the heart of the PID loop.
 		// General note about shifting: Be sure to combine your shifts.
@@ -121,8 +132,7 @@ void ADC1_IRQHandler(void)
 		int plant = 
 			(err << ( (-ADC_IIR) + (ERROR_P_TERM) )) +
 			(integral >> ( ADC_IIR - (ERROR_I_TERM) )) + 
-			0;//(derivative << ( (-ADC_IIR) - (ERROR_D_TERM) ) );
-		lasterr = err;
+			0;//(derivative >> ( (ADC_IIR) - (ERROR_D_TERM) ) );
 		plant = ( plant > PWM_MAXIMUM_DUTY ) ? PWM_MAXIMUM_DUTY : plant;
 		plant = ( plant < 0 ) ? 0 : plant;
 		TIM1->CH2CVR = plant;
@@ -136,7 +146,7 @@ void ADC1_IRQHandler(void)
 			//	 0x175 / 373 for 3.3v input << lastrefvdd
 
 			// Do an IIR low-pass filter on VDD. See IIR discussion above.
-			lastrefvdd = ADC1->IDATAR1 + (lastrefvdd - (lastrefvdd>>VDD_IIR)); 
+			uint32_t vdd = lastrefvdd = ADC1->IDATAR1 + (lastrefvdd - (lastrefvdd>>VDD_IIR));
 
 	#ifndef ENABLE_TUNING
 
@@ -210,43 +220,14 @@ void ADC1_IRQHandler(void)
 			// complexity is determined by the size of the right-hand value of
 			// multiply, which you should try to make the smaller value.
 
-			uint32_t numerator = (lastrefvdd * target_feedback);
+			uint32_t numerator = (vdd * target_feedback);
 			feedback_vdd =
 				(numerator>>(7+VDD_IIR-ADC_IIR)) +
 				(numerator>>(11+VDD_IIR-ADC_IIR));
 		}
-	GPIOD->BSHR = (1<<(16+6));
 	}
 
-
-
-	if( fade_enable  )
-	{
-
-//	GPIOD->BSHR = 1<<6;
-		// This interrupt is hit at about 280kHz.  We use this to fade in/out
-		// all the digits. We can in-line increment count and mask it off, so
-		// we then have a number from 0 ... 255 that will let us do things at
-		// specific times, like fade the cathodes or read the VDD ADC.
-		int fadepos = ( ++count ) & 0xff;
-
-		// Digit fade.  Use fade_timeX and fade_dispX to handle fade logic.
-		if( fadepos == fade_time0 )
-			ApplyOnMask( 0 );
-		else if( fadepos == 0 )
-			ApplyOnMask( fade_disp0 );
-		else if( fadepos == fade_time1 ) 
-			ApplyOnMask( 0 ); // Only useful if we want to have two dim segs on
-		else if( fadepos == fade_time0 + 1 )
-			ApplyOnMask( fade_disp1 );
 //	GPIOD->BSHR = (1<<(16+6));
-	}
-
-
-	if( (statr & ADC_EOC ) )
-	{
-		ADC1->STATR &= ~ADC_EOC;
-	}
 }
 
 static void SetupTimer()
@@ -288,7 +269,7 @@ static void SetupADC()
 	RCC->APB2PRSTR |= RCC_APB2Periph_ADC1;
 	RCC->APB2PRSTR &= ~RCC_APB2Periph_ADC1;
 
-	// ADCCLK = 12 MHz => RCC_ADCPRE = 0: divide by 4
+	// ADCCLK = 12 MHz => RCC_ADCPRE divide by 4
 	RCC->CFGR0 &= ~RCC_ADCPRE;  // Clear out the bis in case they were set
 	RCC->CFGR0 |= RCC_ADCPRE_DIV4;	// set it to 010xx for /4.
 
@@ -327,7 +308,14 @@ static void SetupADC()
 	// ADC_JEOCIE: Enable the End-of-conversion interrupt.
 	// ADC_JDISCEN | ADC_JAUTO: Force injection after rule conversion.
 	// ADC_SCAN: Allow scanning.
-	ADC1->CTLR1 = ADC_EOCIE | ADC_JEOCIE | ADC_JDISCEN | ADC_SCAN | ADC_JAUTO;
+	ADC1->CTLR1 = ADC_JEOCIE | ADC_JDISCEN | ADC_SCAN | ADC_JAUTO;
+}
+
+// Apply a given output mask to the GPIO ports the nixie tubes are hooked into.
+static void ApplyOnMask( uint16_t onmask )
+{
+	GPIOD->OUTDR = onmask >> 8;
+	GPIOC->OUTDR = onmask & 0xff;
 }
 
 uint16_t GenOnMask( int segmenton )
@@ -376,29 +364,19 @@ static void HandleCommand( uint32_t dmdword )
 	{
 		int segmenton = (dmdword>>16)&0x0f;
 
-		// Disable all fading.
-		fade_enable = 0;
-
-		// Allow at least a microsecond or so to turn cathode off.
-		ApplyOnMask( 0 );
-
-		ApplyOnMask( GenOnMask( segmenton ) );
+		fade_time0 = -1;
+		fade_time1 = -1;
+		fade_disp0 = GenOnMask(segmenton);
+		fade_disp1 = 0;
 		break;
 	}
 	case 3:
 	{
 		// Configure a fade.
-		int disp0 = ( dmdword >> 8 ) & 0xf;
-		int disp1 = ( dmdword >> 12 ) & 0xf;
-		int time0 = ( dmdword >> 16 ) & 0xff;
-		int time1 = ( dmdword >> 24 ) & 0xff;
-
-		fade_time0 = time0;
-		fade_time1 = time1;
-		fade_disp0 = GenOnMask( disp0 );
-		fade_disp1 = GenOnMask( disp1 );
-		fade_enable = 1;
-
+		fade_disp0 = GenOnMask( ( dmdword >> 8 ) & 0xf );
+		fade_disp1 = GenOnMask( ( dmdword >> 12 ) & 0xf );
+		fade_time0 = ( dmdword >> 16 ) & 0xff;
+		fade_time1 = ( dmdword >> 24 ) & 0xff;
 		break;
 	}
 	case 4:
@@ -465,13 +443,14 @@ int main()
 
 	target_feedback = 0;
 
+	uint32_t lastmask = 0;
+
+	// Cause system timer to run and reload when it hits CMP and HCLK/8.
+	// Also, don't stop at comparison value.
+	SysTick->CTLR = 1;
+
 	while(1)
 	{
-		// DEBUG: Twiddle P6.  We can look on the scope at what's happening
-		// so we can guess at how long the interrupts are taking.
-		//GPIOD->BSHR = 1<<6;
-		//GPIOD->BSHR = (1<<(16+6));
-
 		uint32_t dmdword = *DMDATA0;
 		if( (dmdword & 0xf0) == 0x40 )
 		{
@@ -480,8 +459,31 @@ int main()
 			// so I encapsulated the code in a function.
 			//
 			// This function handles commands we get over the programming
-			// interface.  Like 
+			// interface.  Like "set HV bus" or "set this digit on."
 			HandleCommand( dmdword );
+		}
+
+		// Causes us to cycle through all 256 sequence points every 1.5ms.
+		uint32_t fadepos = (SysTick->CNT >> 5) & 0xff;
+
+		// We want to glow the LEDs with a chopping period of less, so we
+		// "rotate" the bits.  This has the effect of making the primary
+		// switching frequency for the tubes much higher, but, at the same time
+		// also jittering the edges in time so you can get a full 8-bit fade.
+		// You can rotate more or less to control the periodicity.
+		fadepos = (fadepos << 2) | ( fadepos >> 6);
+
+		uint32_t mask = HandleFade( fadepos );
+		if( mask != lastmask )
+		{
+			if( lastmask )
+			{
+				// Make sure we have a short gap with nothing on.
+				ApplyOnMask( 0 );
+				Delay_Us( 3 );
+			}
+			ApplyOnMask( mask );
+			lastmask = mask;
 		}
 	}
 }

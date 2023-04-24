@@ -82,18 +82,21 @@ int main()
 		static int set_period = 96;
 		static int set_max_duty = 48;
 		static int last_set_v = 0;
+		static int aux_value = 0;
 		{
 			CNFGColor( 0x303030ff );
 			CNFGTackSegment( w-100, 45, w-100, h );
-#ifdef ENABLE_TUNING
 			CNFGTackSegment( w-200, 45, w-200, h );
-			CNFGTackSegment( w-300, 45, w-300, h );
+#ifdef ENABLE_TUNING
+			CNFGTackSegment( w-300, 45, w-200, h );
+			CNFGTackSegment( w-400, 45, w-300, h );
 #endif
 			CNFGColor( 0xD0D0D0FF );
 			CNFGPenX = w-100+2; CNFGPenY = 47; sprintf( cts, "VTG %d", last_set_v ); CNFGDrawText( cts, 2 );
+			CNFGPenX = w-200+2; CNFGPenY = 47; sprintf( cts, "AUX %d", aux_value ); CNFGDrawText( cts, 2 );
 #ifdef ENABLE_TUNING
-			CNFGPenX = w-200+2; CNFGPenY = 47; sprintf( cts, "Per %d", set_period ); CNFGDrawText( cts, 2 );
-			CNFGPenX = w-300+2; CNFGPenY = 47; sprintf( cts, "Duty %d", set_max_duty ); CNFGDrawText( cts, 2 );
+			CNFGPenX = w-300+2; CNFGPenY = 47; sprintf( cts, "Per %d", set_period ); CNFGDrawText( cts, 2 );
+			CNFGPenX = w-400+2; CNFGPenY = 47; sprintf( cts, "Duty %d", set_max_duty ); CNFGDrawText( cts, 2 );
 #endif
 		}
 
@@ -109,13 +112,18 @@ int main()
 					rmask = ( last_set_v << 16 ) | 0x41;
 				}
 			}
-#ifdef ENABLE_TUNING
 			else if( setx > w - 200 )
+			{
+				last_set_v = set_v;
+				rmask = (last_set_v<<16) | 0xaa45;
+			}
+#ifdef ENABLE_TUNING
+			else if( setx > w - 300 )
 			{
 				set_period = set_v;
 				rmask = (set_period<<16) | (set_max_duty<<24) | 0xaa44;
 			}
-			else if( setx > w - 300 )
+			else if( setx > w - 400 )
 			{
 				set_max_duty = set_v;
 				rmask = (set_period<<16) | (set_max_duty<<24) | 0xaa44;

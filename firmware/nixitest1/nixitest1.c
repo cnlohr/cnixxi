@@ -11,7 +11,6 @@
 // in order configure RESET as a GPIO so you can use the AUX input as well
 // as forcing the watchdog on by default. 
 //
-// TODO: Spare "neon" channel should be independent.
 
 #define SYSTEM_CORE_CLOCK 48000000
 
@@ -249,20 +248,14 @@ void ADC1_IRQHandler(void)
 //	GPIOD->BSHR = (1<<(16+6));
 }
 
-static void SetupTimer()
+static void SetupTimer1()
 {
-	// GPIO A1 Push-Pull, Auto Function, 50 MHz Drive Current.
-	// This goes to our switching FET for our flyback.
-	GPIOA->CFGLR &= ~(0xf<<(4*1));
-	GPIOA->CFGLR |= (GPIO_Speed_50MHz | GPIO_CNF_OUT_PP_AF)<<(4*1);
-
 	// Enable Timer 1
 	RCC->APB2PRSTR |= RCC_APB2Periph_TIM1;
 	RCC->APB2PRSTR &= ~RCC_APB2Periph_TIM1;
 
 	TIM1->PSC = 0x0000;  // Prescalar to 0x0000 (so, 48MHz base clock)
 	TIM1->ATRLR = PWM_PERIOD;
-	TIM1->SWEVGR = TIM_UG;
 	TIM1->CCER = TIM_CC2E | TIM_CC2NP;  // CH2 is control for FET.
 	TIM1->CHCTLR1 = TIM_OC2M_2 | TIM_OC2M_1;
 
@@ -276,6 +269,26 @@ static void SetupTimer()
 	// Enable TIM1 outputs
 	TIM1->BDTR = TIM_MOE;
 	TIM1->CTLR1 = TIM_CEN;
+}
+
+static void SetupTimer2()
+{
+	// Enable Timer 2
+	RCC->APB1PRSTR |= RCC_APB1Periph_TIM2;
+	RCC->APB1PRSTR &= ~RCC_APB1Periph_TIM2;
+
+	// PD7 will be used as Timer 2, Channel 4 Configure timer 2 to enable this.
+	//TIM2->SWEVGR = 0x0001; 			//TIM_PSCReloadMode_Immediate;
+
+	TIM2->PSC = 0x0060;				// Prescalar to 0x0000 so, 48MHz base clock
+	TIM2->ATRLR = 255;				// 0..255 (So we can be 100% on)
+	TIM2->CHCTLR2 = TIM_OC4M_2 | TIM_OC4M_1;
+	TIM2->CCER = TIM_CC4E;
+	TIM2->CH4CVR = 0;  			// Actual duty cycle (Off to begin with)
+
+	// Enable TIM1 outputs
+	TIM2->BDTR = TIM_MOE;
+	TIM2->CTLR1 = TIM_CEN;
 }
 
 static void SetupADC()
@@ -333,7 +346,7 @@ static void SetupADC()
 // Apply a given output mask to the GPIO ports the nixie tubes are hooked into.
 static void ApplyOnMask( uint16_t onmask )
 {
-	GPIOD->OUTDR = onmask >> 8;
+	GPIOD->OUTDR = (onmask >> 8) | 0x80;
 	GPIOC->OUTDR = onmask & 0xff;
 }
 
@@ -415,6 +428,12 @@ static void HandleCommand( uint32_t dmdword )
 #endif
 		break;
 	}
+	case 5:
+	{
+		// Aux Neon Control
+		TIM2->CH4CVR = dmdword>>16;
+	}
+
 	}
 
 	// Write the status back to the host PC.  Status is our VDD and our FB V
@@ -454,32 +473,39 @@ int main()
 
 	// Enable Peripherals
 	RCC->APB2PCENR |= RCC_APB2Periph_GPIOD | RCC_APB2Periph_GPIOC |
-		RCC_APB2Periph_GPIOA | RCC_APB2Periph_TIM1 | RCC_APB2Periph_ADC1;
+		RCC_APB2Periph_GPIOA | RCC_APB2Periph_TIM1 | RCC_APB2Periph_ADC1 |
+		RCC_APB2Periph_AFIO;
+
+	RCC->APB1PCENR = RCC_APB1Periph_TIM2;
 
 	// I'm paranoid - let's make sure all tube cathodes are high-Z.
 	ApplyOnMask( 0 );
 
 	GPIOD->CFGLR = 
 		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*6) | // GPIO D6 Debug
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*7) | // DIG_AUX
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*3) | // DIG_9
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*2) | // DIG_8
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP_AF)<<(4*7) | // DIG_AUX  (TIM2CH4)
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*3) | // DIG_9
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*2) | // DIG_8
 		(GPIO_Speed_10MHz | GPIO_CNF_IN_FLOATING)<<(4*1) | // PGM Floats.
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*0);  // DIG_DOT
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*0);  // DIG_DOT
 
 	GPIOC->CFGLR = 
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*0) | // DIG_0
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*1) | // DIG_1
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*2) | // DIG_2
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*3) | // DIG_3
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*4) | // DIG_4
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*5) | // DIG_5
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*6) | // DIG_6
-		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*7);  // DIG_7
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*0) | // DIG_0
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*1) | // DIG_1
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*2) | // DIG_2
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*3) | // DIG_3
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*4) | // DIG_4
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*5) | // DIG_5
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*6) | // DIG_6
+		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*7);  // DIG_7
 
+
+	GPIOA->CFGLR =
+		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP_AF)<<(4*1); //FLYBACK (T1CH2)
 
 	SetupADC();
-	SetupTimer();
+	SetupTimer1();
+	SetupTimer2();
 
 	*DMDATA0 = 0;
 

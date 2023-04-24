@@ -10,6 +10,8 @@
 // Note: Before running this, you should run the optionbytes folder script
 // in order configure RESET as a GPIO so you can use the AUX input as well
 // as forcing the watchdog on by default. 
+//
+// TODO: Spare "neon" channel should be independent.
 
 #define SYSTEM_CORE_CLOCK 48000000
 

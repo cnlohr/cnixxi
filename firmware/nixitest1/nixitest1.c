@@ -92,8 +92,7 @@ static uint32_t HandleFade( uint8_t fadepos )
 // FYI You can use functions in ram to make them work faster.  The .data
 // attribute. This means this function gets placed into RAM. Normally this
 // function takes approximately 2.5-3us to execute from flash, but only 2-2.5us
-// to execute from RAM. It was not needed so I didn't do it. 
-//   __attribute__((section(".data")));
+// to execute from RAM.
 
 // This is an interrupt called by an ADC conversion.
 void ADC1_IRQHandler(void)

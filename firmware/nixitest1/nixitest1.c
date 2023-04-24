@@ -187,8 +187,8 @@ void ADC1_IRQHandler(void)
 			// There's a neat trick where you can divide by weird decimal divisors
 			// by adding and subtracing terms. We perform this trick here and below
 			//
-			// 1÷(1÷4−1÷64−1÷128−1÷1024) is roughly equal to dividing by 4.43290
-			// We actually can simplify it for our purposes as: 1÷(1÷4−1÷64−1÷128)
+			// 1÷(1÷4−1÷64−1÷128−1÷1024) is about equal to dividing by 4.43290
+			// It can be simplified it for our purposes as: 1÷(1÷4−1÷64−1÷128)
 			//
 			// You can arbitrarily add and subtract terms to get as closed to your
 			// desired target value as possbile.
@@ -454,6 +454,9 @@ int main()
 	RCC->APB2PCENR |= RCC_APB2Periph_GPIOD | RCC_APB2Periph_GPIOC |
 		RCC_APB2Periph_GPIOA | RCC_APB2Periph_TIM1 | RCC_APB2Periph_ADC1;
 
+	// I'm paranoid - let's make sure all tube cathodes are high-Z.
+	ApplyOnMask( 0 );
+
 	GPIOD->CFGLR = 
 		(GPIO_Speed_10MHz | GPIO_CNF_OUT_PP)<<(4*6) | // GPIO D6 Debug
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*7) | // DIG_AUX
@@ -472,7 +475,6 @@ int main()
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*6) | // DIG_6
 		(GPIO_Speed_50MHz | GPIO_CNF_OUT_PP)<<(4*7);  // DIG_7
 
-	ApplyOnMask( 0 );
 
 	SetupADC();
 	SetupTimer();

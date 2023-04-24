@@ -1017,7 +1017,7 @@
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 2848a696-6cce-4cca-9be5-ba731d41de24)
   )
-  (text "Changes in RevA\n * Probably remove HVIMON >> DEFINITELY\n * Include pull-down on HVCTL  >> DEFINITELY.\n * Monitor ripple on HVP  (NOT AN ISSUE)\n * Switch resistors to 15k\n * Transformer should have both rails tied to 5V \n * Aux resistor independent of anode resistor.\n * Aux Neons in series.\n * Shrunk bulk capacitor to 1206\n * Feedback resistor to 1206\nTODO:\nMod HW per Ivan.\n * Shrink binding post holes.\n * Mark off which pin on header is PGM\n * Reduce power to comma\n"
+  (text "Changes in RevA\n * Probably remove HVIMON >> DEFINITELY\n * Include pull-down on HVCTL  >> DEFINITELY.\n * Monitor ripple on HVP  (NOT AN ISSUE)\n * Switch resistors to 15k\n * Transformer should have both rails tied to 5V \n * Aux resistor independent of anode resistor.\n * Aux Neons in series.\n * Shrunk bulk capacitor to 1206\n * Feedback resistor to 1206\nTODO:\nMod HW per Ivan.\n * Shrink binding post holes.\n * Mark off which pin on header is PGM\n * Reduce power to comma\n * Flip orientation of tube?"
     (at 22.86 173.99 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 5c570b8c-e31c-47bd-a56b-23a2e3a9d6d7)

@@ -128,6 +128,23 @@ static inline uint32_t FastMultiply( uint32_t big_num, uint32_t small_num )
 		multiplicand>>=1;
 	} while( multiplicand );
 	return ret;
+
+	// Which is equivelent to the following assembly:
+/*
+	uint32_t ret = 0;
+	asm volatile( "\n\
+		.option   rvc;\n\
+	1:	andi t0, %[small], 1\n\
+		beqz t0, 2f\n\
+		add %[ret], %[ret], %[big]\n\
+	2:	srli %[small], %[small], 1\n\
+		slli %[big], %[big], 1\n\
+		bnez %[small], 1b\n\
+	" :
+		[ret]"=&r"(ret), [big]"+&r"(big_num), [small]"+&r"(small_num) : :
+		"t0" );
+	return ret;
+*/
 }
 
 // FYI You can use functions in ram to make them work faster.  The .data

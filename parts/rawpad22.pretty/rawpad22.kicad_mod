@@ -1,0 +1,20 @@
+(footprint "rawpad22" (version 20211014) (generator pcbnew)
+  (layer "F.Cu")
+  (tedit 0)
+  (property "Sheetfile" "nixitest1.kicad_sch")
+  (property "Sheetname" "")
+  (attr smd)
+  (fp_text reference "J?" (at 0 -0.5 unlocked) (layer "F.SilkS") hide
+    (effects (font (size 0.7 0.7) (thickness 0.1)))
+    (tstamp 44e6f670-39fd-4f57-8f9d-d718f2720744)
+  )
+  (fp_text value "~" (at 0 1 unlocked) (layer "F.Fab") hide
+    (effects (font (size 1 1) (thickness 0.15)))
+    (tstamp 59a3d188-f76a-421b-8f80-779f4c5b031e)
+  )
+  (fp_text user "${REFERENCE}" (at 0 2.5 unlocked) (layer "F.Fab") hide
+    (effects (font (size 1 1) (thickness 0.15)))
+    (tstamp 94dd9f53-badd-482d-b3a8-28ddfce252cb)
+  )
+  (pad "1" thru_hole rect (at 0 0) (size 1.75 1.75) (drill 0.9) (layers *.Cu *.Mask) (tstamp f2c62621-a09b-4af7-8795-43f085490e24))
+)

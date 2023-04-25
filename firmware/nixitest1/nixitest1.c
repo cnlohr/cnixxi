@@ -507,7 +507,7 @@ static inline void AdvanceFadePlace()
 	// also jittering the edges in time so you can get a full 8-bit fade.
 	// You can rotate more or less to control the periodicity.
 
-	// With this scramble, it only takes abut 93us to turn on/off.
+	// With this scramble, the period scramble is about 93us.
 	fadepos = (fadepos << 4) | ( fadepos >> 4);
 
 	uint32_t mask = HandleFade( fadepos );

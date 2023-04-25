@@ -37,7 +37,7 @@ static inline void WatchdogPet();
 #else
 int PWM_PERIOD = 140;
 #endif
-int PWM_MAXIMUM_DUTY = 48;  //This is changed based on vdd.
+int pwm_max_duty = 48;  //This is changed based on vdd.
 
 
 // Flyback PID loop Tuning Parameters
@@ -50,9 +50,9 @@ int PWM_MAXIMUM_DUTY = 48;  //This is changed based on vdd.
 // a P-only loop for quite some time without any issues.
 #define ERROR_P_TERM 2  // Actually 2^2
 #define ERROR_D_TERM 2  // Actually 2^2
-#define I_SAT_MAX (4096) // SAT * 2^(-ADC_IIR+ERROR_I_TERM) = Max impact to PWM
-#define I_SAT_MIN (-2048)
-#define ERROR_I_TERM -6 // Actually 2^-6
+#define I_SAT_MAX (4096+2048) // SAT * 2^(-ADC_IIR+ERROR_I_TERM) = Max impact to PWM
+#define I_SAT_MIN (-4096)
+#define ERROR_I_TERM -5 // Actually 2^-6
 
 // We filter our ADC inputs because they are kind of noisy.
 //
@@ -89,6 +89,48 @@ static uint32_t HandleFade( uint8_t fadepos )
 		return 0;
 }
 
+static inline uint32_t FastMultiply( uint32_t big_num, uint32_t small_num );
+static inline uint32_t FastMultiply( uint32_t big_num, uint32_t small_num )
+{
+	return big_num * small_num;
+	// The CH32V003 is an EC core, so no hardware multiply. GCC's way multiply
+	// is slow, so I wrote this.
+	//
+	// This basically does this:
+	//	return small_num * big_num;
+	//
+	// Note: This does NOT check for zero to begin with, though this still
+	// produces the correct results, it is a little weird that even if
+	// small_num is zero it executes once.
+	//
+	// Additionally note, instead of the if( m&1 ) you can do the following:
+	//  ret += multiplciant & neg(multiplicand & 1).
+	//
+	// BUT! Shockingly! That is slower than an extra branch! The CH32V003
+	//  can branch unbelievably fast.
+	//
+	// This is functionally equivelent and much faster.
+	//
+	// Perf numbers, with small_num set to 180V.
+	//  No multiply:         21.3% CPU Usage
+	//  Assembly below:      42.4% CPU Usage  (1608 bytes for whole program)
+	//  C version:           41.4% CPU Usage  (1600 bytes for whole program)
+	//  Using GCC (__mulsi3) 65.4% CPU Usage  (1652 bytes for whole program)
+	//
+	// The multiply can be done manually:
+	uint32_t ret = 0;
+	uint32_t multiplicand = small_num;
+	uint32_t mutliplicant = big_num;
+	do
+	{
+		if( multiplicand & 1 )
+			ret += mutliplicant;
+		mutliplicant<<=1;
+		multiplicand>>=1;
+	} while( multiplicand );
+	return ret;
+}
+
 // FYI You can use functions in ram to make them work faster.  The .data
 // attribute. This means this function gets placed into RAM. Normally this
 // function takes approximately 2.5-3us to execute from flash, but only 2-2.5us
@@ -118,6 +160,7 @@ void ADC1_IRQHandler(void)
 	// This performs a low-pass filter on our data, ADC1->RDATAR the sample
 	// rate, always.  As a side note, the value of the IIR (but now it's
 	// 2^VDD_IIR bigger)
+
 	int adcraw = ADC1->RDATAR;
 	int newadc = adcraw + (lastadc - (lastadc>>ADC_IIR));
 	lastadc = newadc;
@@ -143,7 +186,7 @@ void ADC1_IRQHandler(void)
 		(err << ( (-ADC_IIR) + (ERROR_P_TERM) )) +
 		(integral >> ( ADC_IIR - (ERROR_I_TERM) )) +
 		(derivative << ( (-ADC_IIR) + (ERROR_D_TERM) ) );
-	plant = ( plant > PWM_MAXIMUM_DUTY ) ? PWM_MAXIMUM_DUTY : plant;
+	plant = ( plant > pwm_max_duty ) ? pwm_max_duty : plant;
 	plant = ( plant < 0 ) ? 0 : plant;
 	TIM1->CH2CVR = plant;
 
@@ -192,7 +235,7 @@ void ADC1_IRQHandler(void)
 	// optimize out the addition there.
 	//
 	// The following code actually
-	PWM_MAXIMUM_DUTY = 
+	pwm_max_duty = 
 		  (lastrefvdd>>(2+VDD_IIR)) 
 		- (lastrefvdd>>(6+VDD_IIR))
 		- (lastrefvdd>>(7+VDD_IIR));
@@ -208,27 +251,31 @@ void ADC1_IRQHandler(void)
 	// 408 = 192 * 240 / x = (192*240)/408 = 112.941176471
 	// 680 = 192 * 373 / x = (373*680)/192 = 105.317647059
 	//
-	//  More tests showed this value across units is around 117.
+	//  More tests showed this value across units is around 120.
 	//
 	// X This becomes our denominator.
-	// feedback_vdd = (current vdd measurement * target voltage) / 117
+	// feedback_vdd = (current vdd measurement * target voltage) / 120
 	// 
-	// Further testing identified that the denominator is almost exactly 117.
-	// We can perform a divison by 117 very quickly by
+	// Further testing identified that the denominator is almost exactly 120.
+	// We can perform a divison by 120 very quickly by
 	//
-	//   feedback = numerator/128 + numerator/2048 + numerator/4096
+	//   feedback = numerator/128 + numerator/2048
 	//
 	// See note above about the constant division trick.
 	//
 	// Side-note:
 	//
 	// This is unintuitively slow becuase is because it uses a multiply. The
-	// CH32V003 does not natively have a multiply instruction, so this actually
-	// calls out to __mulsi3 in libgcc.a.  As a note, it's time complexity is
-	// determined by the size of the right-hand value of multiply, which you
-	// should try to make the smaller value.
+	// CH32V003 does not natively have a multiply instruction, If you use a *
+	// it calls out to __mulsi3 in libgcc.a. 
 
-	uint32_t numerator = (vdd * target_feedback);
+	// The following line of code is still *more* than fast enough but, to
+	// write it out manually, we can get even faster!
+	//
+	//	uint32_t numerator = (vdd * target_feedback);
+
+	uint32_t numerator = FastMultiply( vdd, target_feedback );
+
 	feedback_vdd =
 		(numerator>>(7+VDD_IIR-ADC_IIR)) +
 		(numerator>>(11+VDD_IIR-ADC_IIR));
@@ -271,7 +318,7 @@ static void SetupTimer2()
 	// PD7 will be used as Timer 2, Channel 4 Configure timer 2 to enable this.
 	//TIM2->SWEVGR = 0x0001; 			//TIM_PSCReloadMode_Immediate;
 
-	TIM2->PSC = 0x0060;				// Prescalar to 0x0000 so, 48MHz base clock
+	TIM2->PSC = 0x0020;				// Prescalar to 0x0000 so, 48MHz base clock
 	TIM2->ATRLR = 255;				// 0..255 (So we can be 100% on)
 	TIM2->CHCTLR2 = TIM_OC4M_2 | TIM_OC4M_1;
 	TIM2->CCER = TIM_CC4E;
@@ -306,7 +353,7 @@ static void SetupADC()
 	ADC1->ISQR = (8<<15) | (0<<20);
 
 	// Sampling time for channels. Careful: This has PID tuning implications.
-	// Note to self:  Consider retuning these for 
+	// Note that with 3 and 3,the full loop (and injection) runs at 138kHz.
 	ADC1->SAMPTR2 = (3<<(3*7)) | (3<<(3*8)); 
 		// 0:7 => 3/9/15/30/43/57/73/241 cycles
 		// (4 == 43 cycles), (6 = 73 cycles)  Note these are alrady /2, so 
@@ -414,7 +461,7 @@ static void HandleCommand( uint32_t dmdword )
 			TIM1->ATRLR = PWM_PERIOD;
 			int max_duty = (dmdword>>24)&0xff;
 			if( max_duty > period - 14 ) max_duty = period - 14;
-			PWM_MAXIMUM_DUTY = max_duty;
+			pwm_max_duty = max_duty;
 		}
 #endif
 		break;
@@ -446,6 +493,33 @@ static inline void WatchdogSetup()
 	IWDG->RLDR = 0xFFF;  // reload watchdog, not important don't need to check.
 	IWDG->CTLR = 0xCCCC; // commit registers.
 	WatchdogPet();
+}
+
+static inline void AdvanceFadePlace()
+{
+	static uint32_t lastmask = 0;
+	// Causes us to cycle through all 256 sequence points every 1.5ms.
+	uint32_t fadepos = (SysTick->CNT >> 5) & 0xff;
+
+	// We want to glow the LEDs with a chopping period of less, so we
+	// "rotate" the bits.  This has the effect of making the primary
+	// switching frequency for the tubes much higher, but, at the same time
+	// also jittering the edges in time so you can get a full 8-bit fade.
+	// You can rotate more or less to control the periodicity.
+	fadepos = (fadepos << 4) | ( fadepos >> 4);
+
+	uint32_t mask = HandleFade( fadepos );
+	if( mask != lastmask )
+	{
+		if( lastmask )
+		{
+			// Make sure we have a short gap with nothing on.
+			ApplyOnMask( 0 );
+			Delay_Us( 3 );
+		}
+		ApplyOnMask( mask );
+		lastmask = mask;
+	}
 }
 
 int main()
@@ -502,8 +576,6 @@ int main()
 
 	target_feedback = 0;
 
-	uint32_t lastmask = 0;
-
 	// Cause system timer to run and reload when it hits CMP and HCLK/8.
 	// Also, don't stop at comparison value.
 	SysTick->CTLR = 1;
@@ -522,28 +594,7 @@ int main()
 			HandleCommand( dmdword );
 		}
 
-		// Causes us to cycle through all 256 sequence points every 1.5ms.
-		uint32_t fadepos = (SysTick->CNT >> 5) & 0xff;
-
-		// We want to glow the LEDs with a chopping period of less, so we
-		// "rotate" the bits.  This has the effect of making the primary
-		// switching frequency for the tubes much higher, but, at the same time
-		// also jittering the edges in time so you can get a full 8-bit fade.
-		// You can rotate more or less to control the periodicity.
-		fadepos = (fadepos << 2) | ( fadepos >> 6);
-
-		uint32_t mask = HandleFade( fadepos );
-		if( mask != lastmask )
-		{
-			if( lastmask )
-			{
-				// Make sure we have a short gap with nothing on.
-				ApplyOnMask( 0 );
-				Delay_Us( 3 );
-			}
-			ApplyOnMask( mask );
-			lastmask = mask;
-		}
+		AdvanceFadePlace();
 	}
 }
 

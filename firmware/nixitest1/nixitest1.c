@@ -49,7 +49,7 @@ int pwm_max_duty = 48;  //This is changed based on vdd.
 // Honestly, this is MUCH more sophisticated than it needs to be!  I was using
 // a P-only loop for quite some time without any issues.
 #define ERROR_P_TERM 2  // Actually 2^2
-#define ERROR_D_TERM 2  // Actually 2^2
+#define ERROR_D_TERM -1  // Actually 2^0
 #define I_SAT_MAX (4096+2048) // SAT * 2^(-ADC_IIR+ERROR_I_TERM) = Max impact to PWM
 #define I_SAT_MIN (-4096)
 #define ERROR_I_TERM -5 // Actually 2^-6
@@ -92,7 +92,6 @@ static uint32_t HandleFade( uint8_t fadepos )
 static inline uint32_t FastMultiply( uint32_t big_num, uint32_t small_num );
 static inline uint32_t FastMultiply( uint32_t big_num, uint32_t small_num )
 {
-	return big_num * small_num;
 	// The CH32V003 is an EC core, so no hardware multiply. GCC's way multiply
 	// is slow, so I wrote this.
 	//
@@ -185,7 +184,7 @@ void ADC1_IRQHandler(void)
 	int plant = 
 		(err << ( (-ADC_IIR) + (ERROR_P_TERM) )) +
 		(integral >> ( ADC_IIR - (ERROR_I_TERM) )) +
-		(derivative << ( (-ADC_IIR) + (ERROR_D_TERM) ) );
+		(derivative >> ( (ADC_IIR) - (ERROR_D_TERM) ) );
 	plant = ( plant > pwm_max_duty ) ? pwm_max_duty : plant;
 	plant = ( plant < 0 ) ? 0 : plant;
 	TIM1->CH2CVR = plant;
@@ -498,6 +497,7 @@ static inline void WatchdogSetup()
 static inline void AdvanceFadePlace()
 {
 	static uint32_t lastmask = 0;
+
 	// Causes us to cycle through all 256 sequence points every 1.5ms.
 	uint32_t fadepos = (SysTick->CNT >> 5) & 0xff;
 
@@ -506,6 +506,8 @@ static inline void AdvanceFadePlace()
 	// switching frequency for the tubes much higher, but, at the same time
 	// also jittering the edges in time so you can get a full 8-bit fade.
 	// You can rotate more or less to control the periodicity.
+
+	// With this scramble, it only takes abut 93us to turn on/off.
 	fadepos = (fadepos << 4) | ( fadepos >> 4);
 
 	uint32_t mask = HandleFade( fadepos );
@@ -595,6 +597,7 @@ int main()
 		}
 
 		AdvanceFadePlace();
+
 	}
 }
 

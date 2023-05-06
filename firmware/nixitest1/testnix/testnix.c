@@ -229,84 +229,93 @@ int main()
 			CNFGDrawText( "Press R to enable reg debug.", 2 );
 		}
 
-		int timeout = 0;
+		int timeout;
+		timeout = 0;
+		const int maxtimeout = 30;
 		retry:
 		status = 0xffffffc0;
 		r = MCFO->ReadReg32( dev, DMDATA0, &status );
-		if( ( status & 0xc0 ) == 0x40 && timeout++ < 10 ) goto retry;
-		if( r && timeout++ < 10 ) { printf( "R: %d\n", r ); status = 0; goto retry; }
+
+		if( ( ( status & 0xc0 ) == 0x40 || status == 0 || status == 0xffffffff )  && timeout++ < maxtimeout ) goto retry;
+		if( r && timeout++ < maxtimeout ) { printf( "R: %d\n", r ); status = 0; goto retry; }
 		
-		if( timeout >= 10 )
+		if( timeout >= maxtimeout )
 		{
 			CNFGColor( 0xc0c0c0ff );
 			CNFGPenX = 200;
 			CNFGPenY = 199;
 			CNFGDrawText( "Timeout on command.", 5 );
 		}
-
-		CNFGColor( 0xc0c0c0ff );
-		CNFGPenX = 590;
-		CNFGPenY = 1;
-		sprintf( cts, "%08x", status );
-		CNFGDrawText( cts, 2 );
-
-		float voltvdd = 1.20/(((status>>22)&0x3ff)/1023.0f); // vref = 2.2v
-		float voltage = ((((float)((status>>12)&0x3ff))/1023.0f)*101.0)*voltvdd; //101 because it's 10k + 1M
-		// Measured @ 176 reported here, but 180 in reality if ref is 1.2.  But 1.21 fixes it.
-		volthist[volthisthead] = voltage;
-		volthistvdd[volthisthead] = voltvdd;
-		volthisthead = (volthisthead + 1) % VOLTHISTSIZE;
-		CNFGColor( (voltage > 198)?0xff0000ff:GLOW ); 
-		CNFGPenX = 1;
-		CNFGPenY = 1;
-		sprintf( cts, "HV Line: %3.0f V\nRStatus: %d", voltage, r );
-		CNFGDrawText( cts, 4 );	
-
-		for( y = 0; y < 2; y++ ) for( x = 0; x < 2; x++ )
+		
+		if( status == 0xffffffff || status == 0x00000000 )
 		{
-			CNFGPenX = 200+x;
-			CNFGPenY = 1+y;
-			CNFGDrawText( targdisp[targetnum+2], 10 );
+			MCFO->SetupInterface( dev );
+			if( MCFO->HaltMode )   MCFO->HaltMode( dev, 2 );
 		}
-
-		CNFGColor( BLUEGLOW );
-		CNFGPenX = 300;
-		CNFGPenY = 1;
-		sprintf( cts, "VDD: %3.3f V\n", voltvdd );
-		CNFGDrawText( cts, 4 );
-
-		int i;
-
-		CNFGColor( 0xff0000ff );
-		CNFGTackSegment( 0, 450-200*2-6, w, 450-200*2-6 );
-		CNFGPenX = w - 250; CNFGPenY = 450-200*2-10-6;
-		CNFGDrawText( "WARNING: DO NOT EXCEED THIS LINE (200)", 2 );
-
-		for( i = 0; i < 10; i++ )
+		else
 		{
-			CNFGColor( (i == 0 )?0xD0D0D0FF:0x303030ff );
-			CNFGPenX = 1;
-			CNFGPenY = 450 - 10 - i * 40;
-			sprintf( cts, "%d volts", i * 20 );
+			CNFGColor( 0xc0c0c0ff );
+			CNFGPenX = 590;
+			CNFGPenY = 1;
+			sprintf( cts, "%08x", status );
 			CNFGDrawText( cts, 2 );
-			CNFGTackSegment( 0,450 - i * 40, w, 450 - i * 40 );
-		}
 
-		{
-			CNFGColor( BLUEGLOW ); 
-			int vhp = (volthisthead - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
-			float vl = voltvdd*10;
-			for( i = 0; i < w*2; i++ )
+			float voltvdd = 1.20/(((status>>22)&0x3ff)/1023.0f); // vref = 2.2v
+			float voltage = ((((float)((status>>12)&0x3ff))/1023.0f)*101.0)*voltvdd; //101 because it's 10k + 1M
+			// Measured @ 176 reported here, but 180 in reality if ref is 1.2.  But 1.21 fixes it.
+			volthist[volthisthead] = voltage;
+			volthistvdd[volthisthead] = voltvdd;
+			volthisthead = (volthisthead + 1) % VOLTHISTSIZE;
+			CNFGColor( (voltage > 198)?0xff0000ff:GLOW ); 
+			CNFGPenX = 1;
+			CNFGPenY = 1;
+			sprintf( cts, "HV Line: %3.0f V\nRStatus: %d", voltage, r );
+			CNFGDrawText( cts, 4 );	
+
+			for( y = 0; y < 2; y++ ) for( x = 0; x < 2; x++ )
 			{
-				float v = volthistvdd[vhp]*10;
-				CNFGTackSegment( i/2, 450 - vl*2, (i+1)/2, 450 - v*2 );
-				vhp = (vhp - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
-				//printf( "%f\n", v );
-				vl = v;
+				CNFGPenX = 200+x;
+				CNFGPenY = 1+y;
+				CNFGDrawText( targdisp[targetnum+2], 10 );
 			}
-		}
 
-		{
+			CNFGColor( BLUEGLOW );
+			CNFGPenX = 300;
+			CNFGPenY = 1;
+			sprintf( cts, "VDD: %3.3f V\n", voltvdd );
+			CNFGDrawText( cts, 4 );
+
+			int i;
+
+			CNFGColor( 0xff0000ff );
+			CNFGTackSegment( 0, 450-200*2-6, w, 450-200*2-6 );
+			CNFGPenX = w - 250; CNFGPenY = 450-200*2-10-6;
+			CNFGDrawText( "WARNING: DO NOT EXCEED THIS LINE (200)", 2 );
+
+			for( i = 0; i < 10; i++ )
+			{
+				CNFGColor( (i == 0 )?0xD0D0D0FF:0x303030ff );
+				CNFGPenX = 1;
+				CNFGPenY = 450 - 10 - i * 40;
+				sprintf( cts, "%d volts", i * 20 );
+				CNFGDrawText( cts, 2 );
+				CNFGTackSegment( 0,450 - i * 40, w, 450 - i * 40 );
+			}
+
+			{
+				CNFGColor( BLUEGLOW ); 
+				int vhp = (volthisthead - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
+				float vl = voltvdd*10;
+				for( i = 0; i < w*2; i++ )
+				{
+					float v = volthistvdd[vhp]*10;
+					CNFGTackSegment( i/2, 450 - vl*2, (i+1)/2, 450 - v*2 );
+					vhp = (vhp - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
+					//printf( "%f\n", v );
+					vl = v;
+				}
+			}
+
 			int vhp = (volthisthead - 1 + VOLTHISTSIZE*100)%VOLTHISTSIZE;
 			float vl = voltage;
 			CNFGColor( GLOW ); 

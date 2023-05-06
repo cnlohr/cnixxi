@@ -59,9 +59,13 @@ int main()
 		return -9;
 	}
 	uint32_t rmask = 0x17000040;
+	MCFO->SetupInterface( dev );
+
 	if( MCFO->Control5v )  MCFO->Control5v( dev, 1 );
 	if( MCFO->Control3v3 ) MCFO->Control3v3( dev, 1 );
 	if( MCFO->HaltMode )   MCFO->HaltMode( dev, 2 );
+
+	MCFO->WriteReg32( dev, DMABSTRACTAUTO, 0 );
 
 	printf( "DEV: %p\n", dev );
 	CNFGSetup( "nixitest1 debug app", 640, 480 );
@@ -172,15 +176,15 @@ int main()
 		else
 		{
 			rmask = 0x00000040;
-			MCFO->WriteReg32( dev, 0x04, 0x00000040 );
+			MCFO->WriteReg32( dev, DMDATA0, 0x00000040 );
 		}
 
-		MCFO->WriteReg32( dev, 0x04, rmask );
+		MCFO->WriteReg32( dev, DMDATA0, rmask );
 
 		uint32_t status = 0xffffffff;
 		int r;
 		retry:
-		r = MCFO->ReadReg32( dev, 0x04, &status );
+		r = MCFO->ReadReg32( dev, DMDATA0, &status );
 
 		if( ( status & 0xc0 ) == 0x40 ) goto retry;
 		if( r ) { printf( "R: %d\n", r ); status = 0; goto retry; }

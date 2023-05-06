@@ -4,6 +4,7 @@
 #include "rawdraw_sf.h"
 
 #include "../../ch32v003fun/minichlink/minichlink.h"
+struct MiniChlinkFunctions * MCFO;
 
 //#define ENABLE_TUNING
 
@@ -51,19 +52,16 @@ int volthisthead = 0;
 int main()
 {
 	char cts[128];
-	void * dev = TryInit_ESP32S2CHFUN();
+	void * dev = MiniCHLinkInitAsDLL( &MCFO );
 	if( !dev )
 	{
 		fprintf( stderr, "Error: Couldn't find programmer\n" );
 		return -9;
 	}
-	SetupAutomaticHighLevelFunctions( dev );
-	if( MCF.SetupInterface( dev ) )
-	{
-		fprintf( stderr, "Error: failed to setup\n" );
-		return -9;
-	}
 	uint32_t rmask = 0x17000040;
+	if( MCFO->Control5v )  MCFO->Control5v( dev, 1 );
+	if( MCFO->Control3v3 ) MCFO->Control3v3( dev, 1 );
+	if( MCFO->HaltMode )   MCFO->HaltMode( dev, 2 );
 
 	printf( "DEV: %p\n", dev );
 	CNFGSetup( "nixitest1 debug app", 640, 480 );
@@ -77,7 +75,6 @@ int main()
 		int x, y;
 		CNFGClearFrame();
 		CNFGGetDimensions( &w, &h );
-
 
 		static int set_period = 96;
 		static int set_max_duty = 48;
@@ -175,15 +172,16 @@ int main()
 		else
 		{
 			rmask = 0x00000040;
-			MCF.WriteReg32( dev, 0x04, 0x00000040 );
+			MCFO->WriteReg32( dev, 0x04, 0x00000040 );
 		}
 
-		MCF.WriteReg32( dev, 0x04, rmask );
+		MCFO->WriteReg32( dev, 0x04, rmask );
 
 		uint32_t status = 0xffffffff;
 		int r;
 		retry:
-		r = MCF.ReadReg32( dev, 0x04, &status );
+		r = MCFO->ReadReg32( dev, 0x04, &status );
+
 		if( ( status & 0xc0 ) == 0x40 ) goto retry;
 		if( r ) { printf( "R: %d\n", r ); status = 0; goto retry; }
 

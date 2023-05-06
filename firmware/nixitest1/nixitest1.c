@@ -77,7 +77,7 @@ int lastrefvdd = 0;
 uint16_t fade_time0, fade_time1;
 uint16_t fade_disp0, fade_disp1;
 
-static uint32_t HandleFade( uint8_t fadepos )  __attribute__((section(".data")));
+static uint32_t HandleFade( uint8_t fadepos )  __attribute__((section(".srodata")));
 static uint32_t HandleFade( uint8_t fadepos )
 {
 	// Digit fade.  Use fade_timeX and fade_dispX to handle fade logic.
@@ -147,7 +147,7 @@ static inline uint32_t FastMultiply( uint32_t big_num, uint32_t small_num )
 */
 }
 
-// FYI You can use functions in ram to make them work faster.  The .data
+// FYI You can use functions in ram to make them work faster.  The .srodata
 // attribute. This means this function gets placed into RAM. Normally this
 // function takes approximately 2.5-3us to execute from flash, but only 2-2.5us
 // to execute from RAM.
@@ -155,7 +155,7 @@ static inline uint32_t FastMultiply( uint32_t big_num, uint32_t small_num )
 // This is an interrupt called by an ADC conversion.
 void ADC1_IRQHandler(void)
 	__attribute__((interrupt))
-	__attribute__((section(".data")));
+	__attribute__((section(".srodata")));
 
 void ADC1_IRQHandler(void)
 {

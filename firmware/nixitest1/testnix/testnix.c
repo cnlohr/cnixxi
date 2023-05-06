@@ -9,6 +9,7 @@ struct MiniChlinkFunctions * MCFO;
 //#define ENABLE_TUNING
 
 int targetnum = 0;
+int debugregs = 0;
 int lastsettarget = -1;
 #define VOLTAGE_SCALE 2.01
 
@@ -34,6 +35,7 @@ void HandleKey( int keycode, int bDown )
 		case '=': case '+': targetnum = 12; break;
 		case 'f': case 'F': targetnum = -1; break;
 		case 'd': case 'D': targetnum = -2; break;
+		case 'R': case 'r': debugregs = !debugregs; break;
 	}
 	}
 }
@@ -58,9 +60,10 @@ int main()
 		fprintf( stderr, "Error: Couldn't find programmer\n" );
 		return -9;
 	}
-	uint32_t rmask = 0x17000040;
+
 	MCFO->SetupInterface( dev );
 
+	if( MCFO->HaltMode )   MCFO->HaltMode( dev, 0 );
 	if( MCFO->Control5v )  MCFO->Control5v( dev, 1 );
 	if( MCFO->Control3v3 ) MCFO->Control3v3( dev, 1 );
 	if( MCFO->HaltMode )   MCFO->HaltMode( dev, 2 );
@@ -68,7 +71,7 @@ int main()
 	MCFO->WriteReg32( dev, DMABSTRACTAUTO, 0 );
 
 	printf( "DEV: %p\n", dev );
-	CNFGSetup( "nixitest1 debug app", 640, 480 );
+	CNFGSetup( "nixitest1 debug app", 640, 570 );
 	while(CNFGHandleInput())
 	{
 		const uint32_t GLOW = 0xFFD010FF;
@@ -100,6 +103,8 @@ int main()
 			CNFGPenX = w-400+2; CNFGPenY = 47; sprintf( cts, "Duty %d", set_max_duty ); CNFGDrawText( cts, 2 );
 #endif
 		}
+
+		uint32_t rmask = 0;
 
 		if( do_set )
 		{
@@ -183,11 +188,61 @@ int main()
 
 		uint32_t status = 0xffffffff;
 		int r;
-		retry:
-		r = MCFO->ReadReg32( dev, DMDATA0, &status );
+		
+		if( debugregs )
+		{
+			#define MONREGS 20
+			uint32_t monitor_regs[MONREGS] = {
+				DMDATA0, DMDATA1, DMCONTROL, DMSTATUS, 
+				DMHARTINFO, DMABSTRACTCS, DMCOMMAND, DMABSTRACTAUTO,
+				DMPROGBUF0, DMPROGBUF1, DMPROGBUF2, DMPROGBUF3,
+				DMPROGBUF4, DMPROGBUF5, DMPROGBUF6, DMPROGBUF7,
+				DMCPBR, DMCFGR, DMSHDWCFGR, 0x06 };
+			const char * monitor_names[MONREGS] = {
+				"data0", "data1", "dmcontrol", "dmstatus",
+				"hartinfo", "abstractcs", "command", "abstractauto",
+				"progbuf0", "progbuf1", "progbuf2", "progbuf3", 
+				"progbuf4", "progbuf5", "progbuf6", "progbuf7", 
+				"cpbr", "cfgr", "shdwcfgr", "0x06" };
+			static uint32_t regv[MONREGS];
+			static uint32_t lastr[MONREGS];
+			static int lastreg;
+			lastreg++;
+			if( lastreg >= MONREGS ) lastreg = 0;
 
-		if( ( status & 0xc0 ) == 0x40 ) goto retry;
-		if( r ) { printf( "R: %d\n", r ); status = 0; goto retry; }
+			lastr[lastreg] = MCFO->ReadReg32( dev, monitor_regs[lastreg], &regv[lastreg] );
+			int i;
+			for( i = 0; i < MONREGS; i++ )
+			{
+				CNFGColor( 0xc0c0c0ff );
+				CNFGPenX = 1 + (i%2) * 200;
+				CNFGPenY = (460+(i/2)*10);
+				sprintf( cts, "%12s: %08x%s", monitor_names[i], regv[i], lastr[i]?" ERROR":"" );
+				CNFGDrawText( cts, 2 );
+			}
+		}
+		else
+		{
+			CNFGColor( 0xc0c0c0ff );
+			CNFGPenX = 1;
+			CNFGPenY = 460;
+			CNFGDrawText( "Press R to enable reg debug.", 2 );
+		}
+
+		int timeout = 0;
+		retry:
+		status = 0xffffffc0;
+		r = MCFO->ReadReg32( dev, DMDATA0, &status );
+		if( ( status & 0xc0 ) == 0x40 && timeout++ < 10 ) goto retry;
+		if( r && timeout++ < 10 ) { printf( "R: %d\n", r ); status = 0; goto retry; }
+		
+		if( timeout >= 10 )
+		{
+			CNFGColor( 0xc0c0c0ff );
+			CNFGPenX = 200;
+			CNFGPenY = 199;
+			CNFGDrawText( "Timeout on command.", 5 );
+		}
 
 		CNFGColor( 0xc0c0c0ff );
 		CNFGPenX = 590;

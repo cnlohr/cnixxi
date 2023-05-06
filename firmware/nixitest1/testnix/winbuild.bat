@@ -1,0 +1,2 @@
+copy ..\..\ch32v003fun\minichlink\libusb-1.0.dll .
+tcc -I..\..\ch32v003fun\minichlink\ -lkernel32 -lgdi32 -luser32 testnix.c -DMINICHLINK_AS_LIBRARY ..\..\ch32v003fun\minichlink\minichlink.c ..\..\ch32v003fun\minichlink\pgm-esp32s2-ch32xx.c ..\..\ch32v003fun\minichlink\pgm-wch-linke.c ..\..\ch32v003fun\minichlink\nhc-link042.c -lsetupapi libusb-1.0.dll

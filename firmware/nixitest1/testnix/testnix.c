@@ -20,7 +20,7 @@ void HandleKey( int keycode, int bDown )
 	{
 	switch( keycode )
 	{
-		case '~': case '`': targetnum = 0; break;
+		case '~': case '`': case 192: targetnum = 0; break;
 		case '1': targetnum = 10; break;
 		case '2': targetnum = 9; break;
 		case '3': targetnum = 8; break;
@@ -31,7 +31,7 @@ void HandleKey( int keycode, int bDown )
 		case '8': targetnum = 3; break;
 		case '9': targetnum = 2; break;
 		case '0': targetnum = 1; break;
-		case '-': case '_': targetnum = 11; break;
+		case '-': case '_': case 189: targetnum = 11; break;
 		case '=': case '+': targetnum = 12; break;
 		case 'f': case 'F': targetnum = -1; break;
 		case 'd': case 'D': targetnum = -2; break;

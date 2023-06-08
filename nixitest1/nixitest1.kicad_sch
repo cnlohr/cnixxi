@@ -1017,7 +1017,7 @@
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 2848a696-6cce-4cca-9be5-ba731d41de24)
   )
-  (text "Changes in RevA\n * Probably remove HVIMON >> DEFINITELY\n * Include pull-down on HVCTL  >> DEFINITELY.\n * Monitor ripple on HVP  (NOT AN ISSUE)\n * Switch resistors to 15k\n * Transformer should have both rails tied to 5V \n * Aux resistor independent of anode resistor.\n * Aux Neons in series.\n * Shrunk bulk capacitor to 1206\n * Feedback resistor to 1206\nTODO:\nMod HW per Ivan.\n * Shrink binding post holes.\n * Mark off which pin on header is PGM\n * Reduce power to comma\n * Flip orientation of tube?"
+  (text "Changes in RevA\n * Probably remove HVIMON >> DEFINITELY\n * Include pull-down on HVCTL  >> DEFINITELY.\n * Monitor ripple on HVP  (NOT AN ISSUE)\n * Switch resistors to 15k\n * Transformer should have both rails tied to 5V \n * Aux resistor independent of anode resistor.\n * Aux Neons in series.\n * Shrunk bulk capacitor to 1206\n * Feedback resistor to 1206\nRev A Discussion\nMod HW per Ivan.\n * Shrink binding post holes.\n * Mark off which pin on header is PGM\n * Reduce power to comma\n * Flip orientation of tube?\nRev B:\n * Switch back to 1210 main cap.\n > C377089 to C326671"
     (at 22.86 173.99 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 5c570b8c-e31c-47bd-a56b-23a2e3a9d6d7)
@@ -1670,13 +1670,13 @@
     (property "Value" "220nF 250V" (id 1) (at 66.04 119.3799 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
-    (property "Footprint" "Capacitor_SMD:C_1206_3216Metric" (id 2) (at 63.1952 121.92 0)
+    (property "Footprint" "Capacitor_SMD:C_1210_3225Metric" (id 2) (at 63.1952 121.92 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (id 3) (at 62.23 118.11 0)
       (effects (font (size 1.27 1.27)) hide)
     )
-    (property "LCSC" "C377089" (id 4) (at 62.23 118.11 0)
+    (property "LCSC" "C326671" (id 4) (at 62.23 118.11 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (pin "1" (uuid 10367c7c-7af7-4f81-94a0-62aff231a41e))
@@ -2378,7 +2378,7 @@
     (property "Reference" "C3" (id 0) (at 110.49 74.9299 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
-    (property "Value" "100n" (id 1) (at 110.49 77.4699 0)
+    (property "Value" "220nF" (id 1) (at 110.49 77.4699 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
     (property "Footprint" "Capacitor_SMD:C_0402_1005Metric" (id 2) (at 107.6452 80.01 0)
@@ -2387,7 +2387,7 @@
     (property "Datasheet" "~" (id 3) (at 106.68 76.2 0)
       (effects (font (size 1.27 1.27)) hide)
     )
-    (property "LCSC" "C1525" (id 4) (at 106.68 76.2 0)
+    (property "LCSC" "C16772" (id 4) (at 106.68 76.2 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (pin "1" (uuid b3e0f434-02a7-420c-84c9-cb8ae311de22))
@@ -2883,13 +2883,13 @@
       (reference "#PWR0134") (unit 1) (value "GND") (footprint "")
     )
     (path "/2482b284-20c0-4ecb-b135-d475161041a6"
-      (reference "C1") (unit 1) (value "220nF 250V") (footprint "Capacitor_SMD:C_1206_3216Metric")
+      (reference "C1") (unit 1) (value "220nF 250V") (footprint "Capacitor_SMD:C_1210_3225Metric")
     )
     (path "/ce857e03-9713-423a-aa86-5e9cf13252ba"
       (reference "C2") (unit 1) (value "10uF 25V") (footprint "Capacitor_SMD:C_0603_1608Metric")
     )
     (path "/c0e4e818-7a15-45d3-98f1-752f12bf617a"
-      (reference "C3") (unit 1) (value "100n") (footprint "Capacitor_SMD:C_0402_1005Metric")
+      (reference "C3") (unit 1) (value "220nF") (footprint "Capacitor_SMD:C_0402_1005Metric")
     )
     (path "/cf8069de-fc54-48f6-88fa-856cb03f39a0"
       (reference "D1") (unit 1) (value "35ns 1A 400V") (footprint "Diode_SMD:D_SOD-123F")

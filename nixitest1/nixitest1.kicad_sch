@@ -1022,7 +1022,7 @@
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 5c570b8c-e31c-47bd-a56b-23a2e3a9d6d7)
   )
-  (text "REV A UNTESTED" (at 119.38 93.98 0)
+  (text "REV B UNTESTED" (at 119.38 93.98 0)
     (effects (font (size 5.08 5.08)) (justify left bottom))
     (uuid b64ceb2f-afc1-463c-90cc-8992a7b743e4)
   )

@@ -334,7 +334,7 @@ static void SetupTimer2()
 	// PD7 will be used as Timer 2, Channel 4 Configure timer 2 to enable this.
 	//TIM2->SWEVGR = 0x0001; 			//TIM_PSCReloadMode_Immediate;
 
-	TIM2->PSC = 0x0020;				// Prescalar to 0x0000 so, 48MHz base clock
+	TIM2->PSC = 0x0020;
 	TIM2->ATRLR = 255;				// 0..255 (So we can be 100% on)
 	TIM2->CHCTLR2 = TIM_OC4M_2 | TIM_OC4M_1;
 	TIM2->CCER = TIM_CC4E;

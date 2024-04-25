@@ -378,7 +378,6 @@ static void SetupADC()
 
 	// Turn on ADC and set rule group to sw trig
 	// 0 = Use TRGO event for Timer 1 to fire ADC rule.
-	//  XXX EDITOR NOTE: This might be incorrect, it maybe Tim1CC1
 	ADC1->CTLR2 = ADC_ADON | ADC_JEXTTRIG | ADC_JEXTSEL | ADC_EXTTRIG; 
 
 	// Reset calibration
